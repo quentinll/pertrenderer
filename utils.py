@@ -7,8 +7,11 @@ Created on Mon Jan 11 17:16:05 2021
 """
 
 import numpy as np
+from datetime import datetime
 import matplotlib.pyplot as plt
 import os
+import ast 
+from pathlib import Path
 import torch
 from tqdm import tqdm
 from pytorch3d.renderer import (
@@ -38,10 +41,10 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-def init_renderers(camera, lights):
+def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1):
   R_init = random_rotations(1)
   log_rot_init = so3_log_map(R_init)
-  blend_settings=BlendParams(sigma = 1e-2, gamma = 5e-1) #smoothing parameters
+  blend_settings=BlendParams(sigma = sigma, gamma = gamma) #smoothing parameters
 
   raster_settings_soft = RasterizationSettings(
       image_size=158, 
@@ -133,7 +136,7 @@ def init_target():
   return meshes, cameras, lights, target_rgb, R_true
 
 
-def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb):
+def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=1e-2,Niter=100,optimizer = "sgd"):
   losses = {"rgb": {"weight": 1.0, "values": []},
             #"silhouette": {"weight": 1.0, "values": []},
             "chamfer":{"values":[]},
@@ -142,8 +145,6 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb):
   gradient_values = []
   num_views_per_iteration = 1
   num_views = len(target_rgb)
-  # Number of optimization steps
-  Niter = 1
   # Plot period for the losses
   plot_period = 100
   gradient_values = []
@@ -154,8 +155,10 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb):
   backtrack_ls  = False
   log_rot = init_pose.clone()
   log_rot.requires_grad_(True)
-  lr_init = 1e-2
-  optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)#torch.optim.Adam([log_rot], lr=lr_init)
+  if optimizer == "sgd":
+      optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)#torch.optim.Adam([log_rot], lr=lr_init)
+  else:
+      optimizer = torch.optim.Adam([log_rot], lr=lr_init)
   for i in loop:
     R = so3_exponential_map(log_rot)
     rotation = Rotate(R, device=device)
@@ -202,26 +205,57 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb):
   ax.set_xlabel("Iteration", fontsize="16")
   ax.set_ylabel("Loss", fontsize="16")
   ax.set_title("Loss vs iterations", fontsize="16")
-  plt.show()
-
+  path_fig = Path().cwd()
+  path_fig = path_fig/('experiments/results/'+str(exp_id))
+  datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
+  if not os.path.exists(path_fig):
+      os.mkdir(path_fig)
+      os.mkdir(path_fig/"optimization_details")
+  if not os.path.exists(path_fig/"optimization_details"/datenow):
+      os.mkdir(path_fig/"optimization_details"/datenow)
+  plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
+  plt.close()
   plt.figure()
   plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
-  plt.show()
-  image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True)
+  image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
+  plt.close()
   return log_rot
 
 
-def compare_pose_opt(N_benchmark = 10):
-    angle_errors = {"random_rasterizer":[], "softras":[]}
-    for i in range(N_benchmark):
-      meshes,cameras,lights,target_rgb,R_true = init_target()
-      log_rot_init, renderer_softras, renderer_random = init_renderers(cameras,lights) 
-      log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_softras, target_rgb)
-      angle_errors["softras"]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
-      log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_random, target_rgb)
-      angle_errors["random_rasterizer"]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
-
-
+def compare_pose_opt(params_file):
+    file = open(Path().cwd()/"experiments"/params_file, "r")
+    params_dic = ast.literal_eval(file.read())
+    file.close()
+    mean_errors = {"random_rasterizer":[], "softras":[]}
+    lr_list = [1e-2,1e-3]
+    smoothing_list = [(1e-2,1e-3)]
+    exp_id = params_dic["exp_id"]
+    N_benchmark = params_dic["N_benchmark"]
+    Niter = params_dic["Niter"]
+    optimizer = params_dic["optimizer"]
+    lr_list = params_dic["lr_list"]
+    smoothing_list = params_dic["smoothing_list"]
+    params = {"lr-smoothing":[]}
+    for lr in lr_list:
+        for smoothing in smoothing_list:
+            (sigma,gamma) = smoothing
+            angle_errors = {"random_rasterizer":[], "softras":[]}
+            for i in range(N_benchmark):
+              meshes,cameras,lights,target_rgb,R_true = init_target()
+              log_rot_init, renderer_softras, renderer_random = init_renderers(cameras,lights,sigma,gamma)
+              log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_softras, target_rgb,exp_id, Niter = Niter, optimizer = optimizer)
+              angle_errors["softras"]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
+              log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_random, target_rgb,exp_id, Niter = Niter, optimizer = optimizer)
+              angle_errors["random_rasterizer"]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
+            mean_errors["softras"] += [sum(angle_errors["softras"])/len(angle_errors["softras"])]
+            mean_errors["random_rasterizer"] += [sum(angle_errors["random_rasterizer"])/len(angle_errors["random_rasterizer"])]
+            params["lr-smoothing"] += [(lr,sigma,gamma)]
+    path_res = Path().cwd()
+    path_res = path_res/('experiments/results/'+str(exp_id))
+    file_res = open(path_res/'angle_error.txt', 'w')
+    print(mean_errors, file = file_res)
+    file_params = open(path_res/'params.txt', 'w')
+    print(params, file = file_params)
 
 def visualize_prediction(predicted_mesh, renderer,R,T,
                          target_image, title='', 
@@ -237,11 +271,12 @@ def visualize_prediction(predicted_mesh, renderer,R,T,
     plt.title(title)
     plt.grid("off")
     plt.axis("off")
-    plt.show()
+    plt.close()
     
     
 def image_grid(
     images,
+    title,
     rows=None,
     cols=None,
     fill: bool = True,
@@ -284,3 +319,6 @@ def image_grid(
             ax.imshow(im[..., 3])
         if not show_axes:
             ax.set_axis_off()
+    path_fig = Path().cwd()
+    path_fig = path_fig/'results/'/title
+    plt.savefig(path_fig/'grid_cube.png', bbox_inches='tight')

@@ -8,10 +8,9 @@ Created on Mon Jan 11 17:10:54 2021
 
 
 from utils import compare_pose_opt
-import torch
+import sys
 
-torch.nn
-torch.heaviside(torch.rand(2,2),0)
-
-
-compare_pose_opt(1)
+if __name__ == "__main__":
+    n = len(sys.argv)
+    params_file = sys.argv[1]
+    compare_pose_opt(params_file)

@@ -37,7 +37,16 @@ class randomHeaviside(Function):
       noise_dict ={"gaussian": torch.tensor(0)}
       noise_type = noise_dict[noise_type]
       if noise_type == noise_dict["gaussian"]:
-        noise = torch.normal(mean = torch.zeros((nb_samples,dist_size[0],dist_size[1],dist_size[2],dist_size[3]),device=device),std = 1. )
+        if nb_samples >0:
+            noise = torch.normal(mean = torch.zeros((nb_samples,dist_size[0],dist_size[1],dist_size[2],dist_size[3]),device=device),std = 1. )
+        else:
+            return "error, unknown analytical expression of expectation of gaussian pertubation heaviside"
+      elif noise_type == noise_dict["logistic"]:
+        if nb_samples >0:
+            base_distribution = torch.distributions.uniform.Uniform(0, 1)
+            transforms = [SigmoidTransform().inv]
+            logistic = torch.distributions.transformed_distribution.TransformedDistribution(base_distribution, transforms)
+            noise  = logistic.sample((nb_samples,dist_size[0],dist_size[1],dist_size[2],dist_size[3]))
       else:
         print("noise type not implemented")
       maps = distances + noise_intensity*noise
@@ -69,10 +78,14 @@ class randomArgmax(Function):
     def forward(ctx,z,nb_samples = 1,noise_intensity = 1e-1, noise_type ="gaussian"):
       device = z.device
       z_size = z.size()
-      noise_dict ={"gaussian": torch.tensor(0)}
+      noise_dict ={"gaussian": torch.tensor(0),"gumbel": torch.tensor(1)}
       noise_type = noise_dict[noise_type]
       if noise_type == noise_dict["gaussian"]:
         noise = torch.normal(mean = torch.zeros((nb_samples,z_size[0],z_size[1],z_size[2],z_size[3]),device=device),std = 1. )
+      elif noise_type == noise_dict["gumbel"]:
+        if nb_samples > 0:
+            m = torch.distributions.gumbel.Gumbel(torch.tensor([0.]), torch.tensor([1.]))
+            noise = m.sample((nb_samples,dist_size[0],dist_size[1],dist_size[2],dist_size[3]))
       else:
         print("noise type not implemented")
       z_pert = z + noise_intensity*noise
