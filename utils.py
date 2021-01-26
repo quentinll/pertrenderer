@@ -40,6 +40,8 @@ if torch.cuda.is_available():
     torch.cuda.set_device(device)
 else:
     device = torch.device("cpu")
+    
+print("device used",device)
 
 def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1):
   R_init = random_rotations(1)
@@ -236,11 +238,13 @@ def compare_pose_opt(params_file):
     lr_list = params_dic["lr_list"]
     smoothing_list = params_dic["smoothing_list"]
     params = {"lr-smoothing":[]}
-    for lr in lr_list:
-        for smoothing in smoothing_list:
+    for j,lr in enumerate(lr_list):
+        for k,smoothing in enumerate(smoothing_list):
+            print(j*len(smoothing_list) + k +1,'/',len(lr_list)*len(smoothing_list),'params')
             (sigma,gamma) = smoothing
             angle_errors = {"random_rasterizer":[], "softras":[]}
             for i in range(N_benchmark):
+              print(i+1,'/', N_benchmark, 'test problem')
               meshes,cameras,lights,target_rgb,R_true = init_target()
               log_rot_init, renderer_softras, renderer_random = init_renderers(cameras,lights,sigma,gamma)
               log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_softras, target_rgb,exp_id, Niter = Niter, optimizer = optimizer)
