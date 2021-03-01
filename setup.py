@@ -7,7 +7,7 @@ Created on Mon Mar  1 16:05:57 2021
 """
 
 
-from setuptools import setup, find_packages
+from setuptools import setup
 
 
 setup(
