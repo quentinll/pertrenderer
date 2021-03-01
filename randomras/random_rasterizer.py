@@ -31,8 +31,8 @@ from pytorch3d.renderer import (
 
 from torch.distributions.transforms import SigmoidTransform
 
-from smoothrast import SoftRast
-from smoothagg import SoftAgg
+from .smoothrast import SoftRast
+from .smoothagg import SoftAgg
 
 
 def smooth_rgb_blend(

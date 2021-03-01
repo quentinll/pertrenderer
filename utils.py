@@ -42,13 +42,13 @@ from pytorch3d.transforms import (
     so3_relative_angle
 )
 from pytorch3d.structures import Meshes
-from random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
+from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
 from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
 import torch.autograd.profiler as profiler
 import pinocchio as pin
 
-from smoothagg import SoftAgg, CauchyAgg, GaussianAgg
-from smoothrast import SoftRast, ArctanRast
+from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg
+from randomras.smoothrast import SoftRast, ArctanRast
 
 if torch.cuda.is_available():
     device = torch.device("cuda:0")
