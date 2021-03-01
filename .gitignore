@@ -1,5 +1,5 @@
 experiments/
 __pycache__/
-pertrender.egg-info/
+pertrenderer.egg-info/
 dist/
 build/
