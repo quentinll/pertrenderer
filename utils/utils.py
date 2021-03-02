@@ -34,7 +34,6 @@ from pytorch3d.renderer import (
 )
 from pytorch3d.transforms import (
     Rotate,
-    euler_angles_to_matrix,
     random_rotations,
     so3_exponential_map,
     so3_log_map,
@@ -44,8 +43,6 @@ from pytorch3d.transforms import (
 from pytorch3d.structures import Meshes
 from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
 from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
-import torch.autograd.profiler as profiler
-import pinocchio as pin
 
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg
 from randomras.smoothrast import SoftRast, ArctanRast
@@ -99,7 +96,7 @@ def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_sa
             cameras=camera,
             lights=lights,
             blend_params=blend_settings,
-            smoothrast = softras_rast,
+            smoothrast = random_rast,
             smoothagg = random_agg
             )
     )
@@ -234,39 +231,29 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
     
     loss = {k: torch.tensor(0.0, device=device) for k in losses}
-    for j in np.random.permutation(num_views).tolist()[:num_views_per_iteration]:
-        images_predicted = diff_renderer(predicted_mesh, cameras=cameras[j], lights=lights)
-        # Squared L2 distance between the predicted RGB image and the target 
-        # image from our dataset
-        predicted_rgb = images_predicted[..., :3]
-        if SGD_pixel:
-          mask_pixel = torch.rand(predicted_rgb.size()[:3],device=device).unsqueeze(3).repeat(1,1,1,3)>=0.3
-          loss_rgb = (((predicted_rgb - target_rgb[j])*mask_pixel) ** 2).mean() # add stochasticity
-        else:
-          loss_rgb = ((predicted_rgb - target_rgb[j]) ** 2).mean()
-        loss["rgb"] += loss_rgb / num_views_per_iteration
-    sum_loss = torch.tensor(0.0, device=device)
+    images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
+    # Squared L2 distance between the predicted RGB image and the target 
+    # image from our dataset
+    predicted_rgb = images_predicted[..., :3]
+    if SGD_pixel:
+      mask_pixel = torch.rand(predicted_rgb.size()[:3],device=device).unsqueeze(3).repeat(1,1,1,3)>=0.3
+      loss_rgb = (((predicted_rgb - target_rgb[0])*mask_pixel) ** 2).mean() # add stochasticity
+    else:
+      loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
+    loss["rgb"] += loss_rgb / num_views_per_iteration
     for k, l in loss.items():
-        if k!="chamfer" and k!="angle_error" :
-            #print(k,l)
-            sum_loss += l * losses[k]["weight"]
         losses[k]["values"].append(l.detach().cpu().item())
     
     # Print the losses
-    loop.set_description("total_loss = %.6f" % sum_loss)
+    loop.set_description("total_loss = %.6f" % loss_rgb)
 
     # Plot mesh
     if i % plot_period == 0:
         images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
-        #visualize_prediction(predicted_mesh, renderer=renderer_textured,target_image=target_rgb[j], title="iter: %d" % i, silhouette=False)
     optimizer.zero_grad()
     # Optimization step
-    sum_loss.backward()
-    #print(grad_pred)
+    loss_rgb.backward()
     gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
-    #print(torch.norm(log_rot.grad).detach().cpu().item())
-    #print("AD grad",log_rot.grad)
-    #print("log rot before", log_rot, "log rot grad", grad_pred)
     optimizer.step()
   fig = plt.figure(figsize=(13, 5))
   ax = fig.gca()

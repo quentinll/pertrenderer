@@ -7,7 +7,7 @@ Created on Mon Jan 11 17:10:54 2021
 """
 
 
-from utils import compare_pose_opt
+from utils.utils import compare_pose_opt
 import sys
 
 if __name__ == "__main__":
