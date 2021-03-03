@@ -85,7 +85,7 @@ class GaussianRast(SmoothRastBase):
     
     def rasterize(self,dists):
         randomheavi = randomHeaviside().apply
-        prob_map = randomheavi(-dists, self.sigma, self.nb_samples)
+        prob_map = randomheavi(-dists, self.nb_samples, self.sigma)
         return prob_map
 
 class ArctanRast(SmoothRastBase):
