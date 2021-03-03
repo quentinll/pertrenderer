@@ -205,76 +205,81 @@ def init_target():
 
 
 def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False):
-  losses = {"rgb": {"weight": 1.0, "values": []},
-            "angle_error":{"values":[]}
-          }
-  gradient_values = []
-  # Plot period for the losses
-  plot_period = 100
-  gradient_values = []
-  loop = tqdm(range(Niter))
-  images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
-  log_rot = init_pose.clone()
-  log_rot.requires_grad_(True)
-  if optimizer == "sgd":
-      optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)
-  else:
-      optimizer = torch.optim.Adam([log_rot], lr=lr_init)
-  for i in loop:
-    R = so3_exponential_map(log_rot)
-    rotation = Rotate(R, device=device)
-    # rotate the mesh
-    predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
+    losses = {"rgb": {"weight": 1.0, "values": []},
+              "angle_error":{"values":[]}
+            }
+    gradient_values = []
+    # Plot period for the losses
+    plot_period = 100
+    gradient_values = []
+    loop = tqdm(range(Niter))
+    images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
+    log_rot = init_pose.clone()
+    log_rot.requires_grad_(True)
+    if optimizer == "sgd":
+        optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)
+    else:
+        optimizer = torch.optim.Adam([log_rot], lr=lr_init)
+    best_log_rot = log_rot.clone()
+    best_loss = np.inf
+    for i in loop:
+      R = so3_exponential_map(log_rot)
+      rotation = Rotate(R, device=device)
+      # rotate the mesh
+      predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
+      
+      loss = {k: torch.tensor(0.0, device=device) for k in losses}
+      images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
+      # Squared L2 distance between the predicted RGB image and the target 
+      # image from our dataset
+      predicted_rgb = images_predicted[..., :3]
+      loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
+      loss["rgb"] += loss_rgb 
+      for k, l in loss.items():
+          losses[k]["values"].append(l.detach().cpu().item())
+      
+      # Print the losses
+      loop.set_description("total_loss = %.6f" % loss_rgb)
     
-    loss = {k: torch.tensor(0.0, device=device) for k in losses}
-    images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
-    # Squared L2 distance between the predicted RGB image and the target 
-    # image from our dataset
-    predicted_rgb = images_predicted[..., :3]
-    loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
-    loss["rgb"] += loss_rgb 
-    for k, l in loss.items():
-        losses[k]["values"].append(l.detach().cpu().item())
-    
-    # Print the losses
-    loop.set_description("total_loss = %.6f" % loss_rgb)
-
-    # Plot mesh
-    if i % plot_period == 0:
-        images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
-    optimizer.zero_grad()
-    # Optimization step
-    loss_rgb.backward()
-    gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
-    optimizer.step()
-    if adapt_reg:
-        sigma,gamma,_ = diff_renderer.shader.get_smoothing()
-        blend_settings = BlendParams(sigma = sigma/1.1,gamma = gamma/2.)
-        diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
-        diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
-  fig = plt.figure(figsize=(13, 5))
-  ax = fig.gca()
-  ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
-  ax.legend(fontsize="16")
-  ax.set_xlabel("Iteration", fontsize="16")
-  ax.set_ylabel("Loss", fontsize="16")
-  ax.set_title("Loss vs iterations", fontsize="16")
-  path_fig = Path().cwd()
-  path_fig = path_fig/('experiments/results/'+str(exp_id))
-  datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
-  if not os.path.exists(path_fig):
-      os.mkdir(path_fig)
-      os.mkdir(path_fig/"optimization_details")
-  if not os.path.exists(path_fig/"optimization_details"/datenow):
-      os.mkdir(path_fig/"optimization_details"/datenow)
-  np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
-  plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
-  plt.close()
-  plt.figure()
-  plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
-  image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
-  plt.close()
-  return log_rot
+      # Plot mesh
+      if i % plot_period == 0:
+          images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
+      optimizer.zero_grad()
+      # Optimization step
+      loss_rgb.backward()
+      if loss_rgb.detach().cpu().numpy() < best_loss:
+          best_loss = loss_rgb.detach().cpu().numpy()
+          best_log_rot = log_rot.clone()
+      gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
+      optimizer.step()
+      if adapt_reg:
+          sigma,gamma,_ = diff_renderer.shader.get_smoothing()
+          blend_settings = BlendParams(sigma = sigma/1.1,gamma = gamma/2.)
+          diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
+          diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
+    fig = plt.figure(figsize=(13, 5))
+    ax = fig.gca()
+    ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
+    ax.legend(fontsize="16")
+    ax.set_xlabel("Iteration", fontsize="16")
+    ax.set_ylabel("Loss", fontsize="16")
+    ax.set_title("Loss vs iterations", fontsize="16")
+    path_fig = Path().cwd()
+    path_fig = path_fig/('experiments/results/'+str(exp_id))
+    datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
+    if not os.path.exists(path_fig):
+        os.mkdir(path_fig)
+        os.mkdir(path_fig/"optimization_details")
+    if not os.path.exists(path_fig/"optimization_details"/datenow):
+        os.mkdir(path_fig/"optimization_details"/datenow)
+    np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
+    plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
+    plt.close()
+    plt.figure()
+    plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
+    image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
+    plt.close()
+    return best_log_rot
 
 
 def compare_pose_opt(params_file):
