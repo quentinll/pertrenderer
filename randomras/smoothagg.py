@@ -8,7 +8,6 @@ Created on Thu Feb 25 10:06:04 2021
 import torch
 from torch.nn import Module
 from torch.autograd import Function
-#from torch.distributions.transforms import SigmoidTransform
 
 class randomArgmax(Function):
     
@@ -84,34 +83,10 @@ class SoftAgg(SmoothAggBase):
         device =zbuf.device
         z_inv = (zfar - zbuf) / (zfar - znear) * mask
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
-        #z_map = ((1./self.alpha)*torch.log(1e-12+prob_map)+ z_inv)/ self.gamma # substract z_inv_max ?
-        #z_map = ((1./self.alpha)*torch.log(1e-12+prob_map)+ z_inv- z_inv_max)/ self.gamma
         z_map = ((self.gamma/self.alpha)*torch.log(prob_map)+ z_inv- z_inv_max)
-        #z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps / self.gamma),dim=-1)
+        #add background component with inverse depth of eps
         z_map =torch.cat((z_map,(torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps -z_inv_max)),dim=-1)
         weights = torch.softmax(z_map/self.gamma,dim=-1)
-        
-        # z_inv = (zfar - zbuf) / (zfar - znear) * mask
-        # # pyre-fixme[16]: `Tuple` has no attribute `values`.
-        # # pyre-fixme[6]: Expected `Tensor` for 1st param but got `float`.
-        # z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
-        # # pyre-fixme[6]: Expected `Tensor` for 1st param but got `float`.
-        # #weights_num = prob_map * torch.exp((z_inv - z_inv_max) / self.gamma)
-        # weights_num = torch.exp(torch.log(prob_map)+(z_inv - z_inv_max) / self.gamma)
-    
-        # # Also apply exp normalize trick for the background color weight.
-        # # Clamp to ensure delta is never 0.
-        # # pyre-fixme[20]: Argument `max` expected.
-        # # pyre-fixme[6]: Expected `Tensor` for 1st param but got `float`.
-        # delta = torch.exp((self.eps - z_inv_max) / self.gamma).clamp(min=self.eps)
-    
-        # # Normalize weights.
-        # # weights_num shape: (N, H, W, K). Sum over K and divide through by the sum.
-        # denom = weights_num.sum(dim=-1)[..., None] + delta
-        # weights = torch.cat((weights_num,delta),dim=-1)/denom
-        # # Sum: weights * textures + background color
-        # #weighted_colors = (weights_num[..., None] * colors).sum(dim=-2)/denom
-        # #weighted_background = delta * background/denom
         return weights
     
     
@@ -159,8 +134,28 @@ class CauchyAgg(SmoothAggBase):
         randomax = randomarg(z_map, self.nb_samples, self.gamma, "cauchy")
         return randomax
     
+class HardAgg():
+    
+    def __init__(self,eps=1e-10):
+        self.eps = eps
+        return
+        
+    def aggregate(self,zbuf,zfar,znear,prob_map,mask):
+        device =zbuf.device
+        z_inv = (zfar - zbuf) / (zfar - znear) * mask
+        z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
+        z_map = ((1./1e6)*log_corrected.apply(prob_map)+ z_inv-z_inv_max)
+        z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max ),dim=-1)
+        _, indices = torch.max(z_map, dim =-1, keepdim=True)
+        weight = torch.zeros(z_map.size(), device = device)
+        weight.scatter_(-1, indices, 1)
+        return weight
+    
 
 class log_corrected(Function):    
+    """
+    logarithm whose backward pass returns 0 instead of nan when x is null and backward pass vector is null.
+    """
     
     @staticmethod
     def forward(ctx,x):

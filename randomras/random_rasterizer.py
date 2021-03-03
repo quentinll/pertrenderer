@@ -8,7 +8,6 @@ Created on Mon Jan 11 17:11:24 2021
 
 import torch
 import torch.nn as nn
-from torch.autograd import Function
 from pytorch3d.renderer.mesh.shading import phong_shading
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -47,33 +46,19 @@ def smooth_rgb_blend(
     else:
         background = background.to(device)
 
-    # Weight for background color
-    eps = 1e-10
-
     # Mask for padded pixels.
     mask = fragments.pix_to_face >= 0
 
-    # Perturbed Heaviside function map based on the distance of the pixel to the face.
+    #rasterization
     prob_map = smoothrast.rasterize(fragments.dists)*mask
-    #randomheavi = randomHeaviside().apply
-    #prob_map = randomheavi(-fragments.dists, nb_samples, blend_params.sigma,noise_type)*mask
     alpha_chan = torch.prod((1.0 - prob_map), dim=-1)
-    #z_inv = (zfar - fragments.zbuf) / (zfar - znear) * mask
-    #z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=eps)
-    #need to balance between color map and depth ?Why log ?
-    #z_map = 1.*torch.log(eps+prob_map)+ (z_inv-z_inv_max)/ blend_params.gamma
-    #z_map = ((1./alpha)*torch.log(1e-12+prob_map)+ z_inv)/ blend_params.gamma
-    #add background
-    #z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*(eps - z_inv_max) / blend_params.gamma),dim=-1)
-    #z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*eps / blend_params.gamma),dim=-1)
-
-    #randomarg = randomArgmax.apply
-    #randomax = randomarg(z_map, nb_samples, blend_params.gamma, noise_type)
+    
+    #aggregation
     randomax = smoothagg.aggregate(fragments.zbuf,zfar,znear,prob_map,mask)
     wz,wb = randomax[...,:-1],randomax[...,-1:]
     weighted_colors = (wz[..., None] * colors).sum(dim=-2)
-    #print("colors",colors[0,0:2,0:2,:])
     weighted_background = wb * background
+    
     pixel_colors[..., :3] = (weighted_colors + weighted_background)
     pixel_colors[..., 3] = 1.0 - alpha_chan
 
@@ -86,10 +71,6 @@ class RandomPhongShader(nn.Module):
     Per pixel lighting - the lighting model is applied using the interpolated
     coordinates and normals for each pixel. The blending function returns the
     soft aggregated color using all the faces per pixel.
-    To use the default values, simply initialize the shader with the desired
-    device e.g.
-    .. code-block::
-        shader = SoftPhongShader(device=torch.device("cuda:0"))
     """
 
     def __init__(
@@ -143,6 +124,13 @@ class RandomPhongShader(nn.Module):
         )
         return images
     
+    def get_smoothing(self):
+        return self.smoothrast.sigma, self.smoothagg.gamma, self.smoothagg.alpha 
+    
+    def update_smoothing(self,sigma=4e-4,gamma=4e-2,alpha =1.):
+        self.smoothrast.update_smoothing(sigma)
+        self.smoothagg.update_smoothing(gamma,alpha)
+    
 class RandomSimpleShader(nn.Module):
 
     def __init__(
@@ -186,6 +174,9 @@ class RandomSimpleShader(nn.Module):
             texels, fragments, self.smoothrast, self.smoothagg, blend_params, znear=znear, zfar=zfar
         )
         return images
+    
+    def get_smoothing(self):
+        return self.smoothrast.sigma, self.smoothagg.gamma, self.smoothagg.alpha 
     
     def update_smoothing(self,sigma=4e-4,gamma=4e-2,alpha =1.):
         self.smoothrast.update_smoothing(sigma)

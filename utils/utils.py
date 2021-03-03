@@ -44,8 +44,8 @@ from pytorch3d.structures import Meshes
 from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
 from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
 
-from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg
-from randomras.smoothrast import SoftRast, ArctanRast
+from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg
+from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast
 
 if torch.cuda.is_available():
     device = torch.device("cuda:0")
@@ -55,7 +55,7 @@ else:
     
 print("device used",device)
 
-def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16):
+def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
     R_init = random_rotations(1)
     log_rot_init = so3_log_map(R_init)
     blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (.0,.0,.0)) #smoothing parameters
@@ -66,53 +66,57 @@ def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_sa
         faces_per_pixel=12, 
     )
     alpha = 1.
-    softras_agg = SoftAgg(gamma= gamma, alpha = alpha )
-    softras_rast = SoftRast(sigma = sigma)
+    # softras_agg = SoftAgg(gamma= gamma, alpha = alpha )
+    # softras_rast = SoftRast(sigma = sigma)
     
-    renderer_softras = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=camera, 
-            raster_settings=raster_settings_soft
-        ),
-        # shader=SoftSimpleShader(device=device,
-        #                         blend_params=blend_settings)
-        shader=RandomSimpleShader(device=device,
-            cameras=camera,
-            lights=lights,
-            blend_params=blend_settings,
-            smoothrast = softras_rast,
-            smoothagg =softras_agg)
-    )
-      
-    random_rast = ArctanRast(sigma = sigma)
-    random_agg = CauchyAgg(gamma = gamma, alpha = alpha,nb_samples=nb_samples)
-    renderer_random = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=camera, 
-            raster_settings=raster_settings_soft
-        ),
-        #shader=RandomPhongShader(device=device,
-        shader=RandomSimpleShader(device=device,
-            cameras=camera,
-            lights=lights,
-            blend_params=blend_settings,
-            smoothrast = random_rast,
-            smoothagg = random_agg
-            )
-    )
-    return log_rot_init, renderer_softras, renderer_random
+    # renderer_softras = MeshRenderer(
+    #     rasterizer=MeshRasterizer(
+    #         cameras=camera, 
+    #         raster_settings=raster_settings_soft
+    #     ),
+    #     # shader=SoftSimpleShader(device=device,
+    #     #                         blend_params=blend_settings)
+    #     shader=RandomSimpleShader(device=device,
+    #         cameras=camera,
+    #         lights=lights,
+    #         blend_params=blend_settings,
+    #         smoothrast = softras_rast,
+    #         smoothagg =softras_agg)
+    # )
+    renderers = []
+    for i in range(len(noise_type)):
+        if noise_type[i] == "cauchy":
+            random_rast = ArctanRast(sigma = sigma)
+            random_agg = CauchyAgg(gamma = gamma, alpha = alpha,nb_samples=nb_samples)
+        if noise_type[i] == "gaussian":
+            random_rast = GaussianRast(sigma = sigma)
+            random_agg = GaussianAgg(gamma = gamma, alpha = alpha,nb_samples=nb_samples)
+        if noise_type[i] == "uniform":
+            random_rast = AffineRast(sigma=sigma)
+            random_agg = HardAgg()
+        if noise_type[i] =="softras":
+            random_rast = SoftRast(sigma = sigma)
+            random_agg = SoftAgg(gamma= gamma, alpha = alpha )
+            
+        renderer_random = MeshRenderer(
+            rasterizer=MeshRasterizer(
+                cameras=camera, 
+                raster_settings=raster_settings_soft
+            ),
+            #shader=RandomPhongShader(device=device,
+            shader=RandomSimpleShader(device=device,
+                cameras=camera,
+                lights=lights,
+                blend_params=blend_settings,
+                smoothrast = random_rast,
+                smoothagg = random_agg
+                )
+        )
+        renderers+=[renderer_random]
+    return log_rot_init, renderers
+    # return log_rot_init, renderer_softras, renderer_random
 
 def init_target():
-    # DATA_DIR = "./data/rubiks"
-    # obj_filename = os.path.join(DATA_DIR, "cube2.obj")
-    # mesh = load_objs_as_meshes([obj_filename], device=device)
-    # verts = mesh.verts_packed()
-    # N = verts.shape[0]
-    # center = verts.mean(0)
-    # scale = max((verts - center).abs().max(0)[0])
-    # mesh.offset_verts_(-center.expand(N, 3))
-    # mesh.scale_verts_((1.0 / float(scale)));
-    
     datadir = "./data/rubiks"
     obj_filename = os.path.join(datadir, "cube2.obj")
     fn = 'cube_p.npz'
@@ -157,7 +161,7 @@ def init_target():
     
     lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
     
-    R, T = look_at_view_transform(dist=4.7, elev=elev, azim=azim)
+    R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
@@ -200,32 +204,24 @@ def init_target():
     return meshes, cameras, lights, target_rgb, R_true
 
 
-def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=1e-2,Niter=100,optimizer = "sgd"):
+def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False):
   losses = {"rgb": {"weight": 1.0, "values": []},
-            #"silhouette": {"weight": 1.0, "values": []},
-            "chamfer":{"values":[]},
             "angle_error":{"values":[]}
           }
   gradient_values = []
-  num_views_per_iteration = 1
-  num_views = len(target_rgb)
   # Plot period for the losses
-  plot_period = 1
+  plot_period = 100
   gradient_values = []
   loop = tqdm(range(Niter))
-  adapt_reg = False
   images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
-  SGD_pixel = False
-  backtrack_ls  = False
   log_rot = init_pose.clone()
   log_rot.requires_grad_(True)
   if optimizer == "sgd":
-      optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)#torch.optim.Adam([log_rot], lr=lr_init)
+      optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)
   else:
       optimizer = torch.optim.Adam([log_rot], lr=lr_init)
   for i in loop:
     R = so3_exponential_map(log_rot)
-    #print(R)
     rotation = Rotate(R, device=device)
     # rotate the mesh
     predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
@@ -235,12 +231,8 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     # Squared L2 distance between the predicted RGB image and the target 
     # image from our dataset
     predicted_rgb = images_predicted[..., :3]
-    if SGD_pixel:
-      mask_pixel = torch.rand(predicted_rgb.size()[:3],device=device).unsqueeze(3).repeat(1,1,1,3)>=0.3
-      loss_rgb = (((predicted_rgb - target_rgb[0])*mask_pixel) ** 2).mean() # add stochasticity
-    else:
-      loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
-    loss["rgb"] += loss_rgb / num_views_per_iteration
+    loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
+    loss["rgb"] += loss_rgb 
     for k, l in loss.items():
         losses[k]["values"].append(l.detach().cpu().item())
     
@@ -255,6 +247,11 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     loss_rgb.backward()
     gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
     optimizer.step()
+    if adapt_reg:
+        sigma,gamma,_ = diff_renderer.shader.get_smoothing()
+        blend_settings = BlendParams(sigma = sigma/1.1,gamma = gamma/2.)
+        diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
+        diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
   fig = plt.figure(figsize=(13, 5))
   ax = fig.gca()
   ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
@@ -284,7 +281,6 @@ def compare_pose_opt(params_file):
     file = open(Path().cwd()/"experiments"/params_file, "r")
     params_dic = ast.literal_eval(file.read())
     file.close()
-    mean_errors = {"random_rasterizer":[], "softras":[]}
     lr_list = [1e-2,1e-3]
     smoothing_list = [(1e-2,1e-3)]
     exp_id = params_dic["exp_id"]
@@ -295,25 +291,27 @@ def compare_pose_opt(params_file):
     smoothing_list = params_dic["smoothing_list"]
     MC_samples = params_dic["MC_samples"]
     noise_type = params_dic["noise_type"]
+    adapt_reg  = params_dic["adapt_reg"]
     params = {"lr-smoothing":[]}
+    mean_errors = {}
+    for x in noise_type:
+        mean_errors[x]= []
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
             print(j*len(smoothing_list) + k +1,'/',len(lr_list)*len(smoothing_list),'params')
             (sigma,gamma) = smoothing
-            angle_errors = {"random_rasterizer":[], "softras":[]}
+            angle_errors = {}
+            for x in noise_type:
+                angle_errors[x]= []
+            #angle_errors = {"random_rasterizer":[], "softras":[]}
             for i in range(N_benchmark):
               print(i+1,'/', N_benchmark, 'test problem')
               meshes,cameras,lights,target_rgb,R_true = init_target()
-              #print(R_true)
-              log_rot_init, renderer_softras, renderer_random = init_renderers(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=MC_samples)
-              #log_rot_init = torch.tensor(pin.log3(R_true.detach().cpu()[0].numpy()), dtype=torch.float32).unsqueeze(0)
-              #log_rot_init = so3_log_map(R_true)
-              log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_softras, target_rgb,exp_id, Niter = Niter, optimizer = optimizer)
-              angle_errors["softras"]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
-              log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderer_random, target_rgb,exp_id, Niter = Niter, optimizer = optimizer)
-              angle_errors["random_rasterizer"]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
-            mean_errors["softras"] += [sum(angle_errors["softras"])/len(angle_errors["softras"])]
-            mean_errors["random_rasterizer"] += [sum(angle_errors["random_rasterizer"])/len(angle_errors["random_rasterizer"])]
+              log_rot_init, renderers = init_renderers(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=MC_samples,noise_type= noise_type)
+              for l in range(len(noise_type)):
+                  log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
+                  angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
+                  mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
             params["lr-smoothing"] += [(lr,sigma,gamma)]
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))

@@ -107,12 +107,8 @@ class AffineRast(SmoothRastBase):
         super().__init__(sigma)
     
     def rasterize(self,dists):
-        if -dists/self.sigma>.5 :
-            prob_map = 1
-        elif -dists/self.sigma<-.5:
-            prob_map = 0
-        else:
-            probmap = -dists/self.sigma + .5
+        prob_map = torch.where(-dists/self.sigma > .5, torch.ones_like(dists),-dists/self.sigma + .5)
+        prob_map = torch.where(prob_map < 0., torch.zeros_like(prob_map),prob_map)
         return prob_map
     
 class HardRast():
