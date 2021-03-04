@@ -251,6 +251,8 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_loss = loss_rgb.detach().cpu().numpy()
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
+      if gradient_values > [-1]: #clipping gradients
+          log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg:
           sigma,gamma,_ = diff_renderer.shader.get_smoothing()
@@ -273,6 +275,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     if not os.path.exists(path_fig/"optimization_details"/datenow):
         os.mkdir(path_fig/"optimization_details"/datenow)
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
+    np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
     plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
     plt.close()
     plt.figure()
@@ -312,14 +315,15 @@ def compare_pose_opt(params_file):
                 angle_errors[x]= []
             #angle_errors = {"random_rasterizer":[], "softras":[]}
             for i in range(N_benchmark):
-              print(i+1,'/', N_benchmark, 'test problem')
-              meshes,cameras,lights,target_rgb,R_true = init_target()
-              log_rot_init, renderers = init_renderers(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=MC_samples,noise_type= noise_type)
-              for l in range(len(noise_type)):
-                  log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
-                  angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().numpy()*180./np.pi]
-                  mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
-                  mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
+                print(i+1,'/', N_benchmark, 'test problem')
+                meshes,cameras,lights,target_rgb,R_true = init_target()
+                log_rot_init, renderers = init_renderers(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=MC_samples,noise_type= noise_type)
+                for l in range(len(noise_type)):
+                    log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
+                    angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
+            for l in range(len(noise_type)):
+                mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
+                mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
             params["lr-smoothing"] += [(lr,sigma,gamma)]
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
