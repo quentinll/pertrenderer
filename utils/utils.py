@@ -210,7 +210,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
             }
     gradient_values = []
     # Plot period for the losses
-    plot_period = 100
+    plot_period = Niter/50
     gradient_values = []
     loop = tqdm(range(Niter))
     images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
