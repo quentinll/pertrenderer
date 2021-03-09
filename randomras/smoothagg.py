@@ -63,7 +63,7 @@ class randomArgmax(Function):
         else:
             print("noise_type not implemented")
         grad_z = grad_z.mean(dim=0)
-        return grad_z, None, None, None
+        return grad_z, None, None, None, None
 
 class SmoothAggBase(Module):
     
