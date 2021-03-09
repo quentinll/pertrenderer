@@ -12,11 +12,13 @@ from torch.autograd import Function
 class randomArgmax(Function):
     
     @staticmethod
-    def forward(ctx,z,nb_samples = 1,noise_intensity = 1e-1, noise_type ="gaussian"):
+    def forward(ctx,z,nb_samples = 1,noise_intensity = 1e-1, noise_type ="gaussian", fixed_noise = False):
         device = z.device
         z_size = z.size()
         noise_dict ={"gaussian": torch.tensor(0),"gumbel": torch.tensor(1), "cauchy":torch.tensor(2), "uniform": torch.tensor(3)}
         noise_type = noise_dict[noise_type]
+        if fixed_noise:
+            torch.manual_seed(1)
         if noise_type == noise_dict["gaussian"]:
           noise = torch.normal(mean = torch.zeros((nb_samples,z_size[0],z_size[1],z_size[2],z_size[3]),device=device),std = 1. )
         elif noise_type == noise_dict["gumbel"]:
@@ -102,8 +104,10 @@ class GaussianAgg(SmoothAggBase):
                  nb_samples=16,
                  gamma = 4e-2,
                  alpha = 1.,
-                 eps= 1e-10):
+                 eps= 1e-10,
+                 fixed_noise=False):
         self.nb_samples = nb_samples
+        self.fixed_noise = fixed_noise
         super().__init__(gamma,alpha,eps)
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
@@ -113,7 +117,7 @@ class GaussianAgg(SmoothAggBase):
         z_map = ((self.gamma/self.alpha)*torch.log(1e-12+prob_map)+ z_inv-z_inv_max) # substract z_inv_max ?
         z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max),dim=-1)
         randomarg = randomArgmax.apply
-        randomax = randomarg(z_map, self.nb_samples, self.gamma, "gaussian")
+        randomax = randomarg(z_map, self.nb_samples, self.gamma, "gaussian",self.fixed_noise)
         return randomax
     
     
@@ -123,8 +127,10 @@ class CauchyAgg(SmoothAggBase):
                  nb_samples=16,
                  gamma = 4e-2,
                  alpha = 1.,
-                 eps = 1e-10):
+                 eps = 1e-10,
+                 fixed_noise=False):
         self.nb_samples = nb_samples
+        self.fixed_noise = fixed_noise
         super().__init__(gamma,alpha,eps)
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
@@ -138,7 +144,7 @@ class CauchyAgg(SmoothAggBase):
         z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max ),dim=-1)
         #z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps ),dim=-1)
         randomarg = randomArgmax.apply
-        randomax = randomarg(z_map, self.nb_samples, self.gamma, "cauchy")
+        randomax = randomarg(z_map, self.nb_samples, self.gamma, "cauchy", self.fixed_noise)
         return randomax
     
 class UniformAgg(SmoothAggBase):
@@ -147,8 +153,10 @@ class UniformAgg(SmoothAggBase):
                  nb_samples=16,
                  gamma = 4e-2,
                  alpha = 1.,
-                 eps = 1e-10):
+                 eps = 1e-10,
+                 fixed_noise=False):
         self.nb_samples = nb_samples
+        self.fixed_noise = fixed_noise
         super().__init__(gamma,alpha,eps)
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
@@ -158,7 +166,7 @@ class UniformAgg(SmoothAggBase):
         z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map)+ z_inv-z_inv_max)
         z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max ),dim=-1)
         randomarg = randomArgmax.apply
-        randomax = randomarg(z_map, self.nb_samples, self.gamma, "uniform")
+        randomax = randomarg(z_map, self.nb_samples, self.gamma, "uniform", self.fixed_noise)
         return randomax
     
     
