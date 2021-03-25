@@ -55,8 +55,10 @@ else:
     
 print("device used",device)
 
-def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
-    R_init = random_rotations(1)
+def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
+    R_pert = torch.normal(torch.zeros((1,3),device = device))
+    R_pert = so3_exponential_map((pert_init_intensity*np.pi/180.)*torch.normal(torch.zeros(1,device = device))*R_pert/R_pert.norm(dim=1))
+    R_init = torch.bmm(R_true.clone(),R_pert).detach().clone()
     log_rot_init = so3_log_map(R_init)
     blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (.0,.0,.0)) #smoothing parameters
       
@@ -64,25 +66,10 @@ def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_sa
         image_size=128, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
+        max_faces_per_bin=30
     )
     alpha = 1.
-    # softras_agg = SoftAgg(gamma= gamma, alpha = alpha )
-    # softras_rast = SoftRast(sigma = sigma)
     
-    # renderer_softras = MeshRenderer(
-    #     rasterizer=MeshRasterizer(
-    #         cameras=camera, 
-    #         raster_settings=raster_settings_soft
-    #     ),
-    #     # shader=SoftSimpleShader(device=device,
-    #     #                         blend_params=blend_settings)
-    #     shader=RandomSimpleShader(device=device,
-    #         cameras=camera,
-    #         lights=lights,
-    #         blend_params=blend_settings,
-    #         smoothrast = softras_rast,
-    #         smoothagg =softras_agg)
-    # )
     renderers = []
     for i in range(len(noise_type)):
         if noise_type[i] == "cauchy":
@@ -113,6 +100,7 @@ def init_renderers(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_sa
                 )
         )
         renderers+=[renderer_random]
+    log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
     return log_rot_init, renderers
     # return log_rot_init, renderer_softras, renderer_random
 
@@ -159,9 +147,10 @@ def init_target():
     elev = torch.linspace(20, 240, num_views)
     azim = torch.linspace(120,150, num_views)
     
-    lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
+    lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
     
-    R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
+    #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
+    R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
@@ -191,7 +180,10 @@ def init_target():
     
     
     meshes = mesh.extend(num_views)
-    R_true = random_rotations(1)
+    R_true = random_rotations(1).to(device=device)
+    R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
+         [-0.90048081,  0.23194659, -0.36787909],
+         [-0.33718359,  0.16188823,  0.92741549]]], device= device)
     rotation_true = Rotate(R_true, device=device)
     # rotate the mesh
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
@@ -210,7 +202,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
             }
     gradient_values = []
     # Plot period for the losses
-    plot_period = Niter/50
+    plot_period = max(Niter/50,1)
     gradient_values = []
     loop = tqdm(range(Niter))
     images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
@@ -251,7 +243,8 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_loss = loss_rgb.detach().cpu().numpy()
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
-      if gradient_values > [-1]: #clipping gradients
+      if gradient_values[-1]> 1000.: #clipping gradients
+          print(log_rot.grad)
           log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg:
@@ -293,6 +286,7 @@ def compare_pose_opt(params_file):
     smoothing_list = [(1e-2,1e-3)]
     exp_id = params_dic["exp_id"]
     N_benchmark = params_dic["N_benchmark"]
+    pert_init_intensity = params_dic["pert_init_intensity"]
     Niter = params_dic["Niter"]
     optimizer = params_dic["optimizer"]
     lr_list = params_dic["lr_list"]
@@ -317,7 +311,7 @@ def compare_pose_opt(params_file):
             for i in range(N_benchmark):
                 print(i+1,'/', N_benchmark, 'test problem')
                 meshes,cameras,lights,target_rgb,R_true = init_target()
-                log_rot_init, renderers = init_renderers(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=MC_samples,noise_type= noise_type)
+                log_rot_init, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=MC_samples,noise_type= noise_type)
                 for l in range(len(noise_type)):
                     log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
                     angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
