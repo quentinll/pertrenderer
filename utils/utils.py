@@ -100,7 +100,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 )
         )
         renderers+=[renderer_random]
-    log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
+    #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
     return log_rot_init, renderers
     # return log_rot_init, renderer_softras, renderer_random
 
@@ -181,9 +181,9 @@ def init_target():
     
     meshes = mesh.extend(num_views)
     R_true = random_rotations(1).to(device=device)
-    R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
-         [-0.90048081,  0.23194659, -0.36787909],
-         [-0.33718359,  0.16188823,  0.92741549]]], device= device)
+    #R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
+    #     [-0.90048081,  0.23194659, -0.36787909],
+    #     [-0.33718359,  0.16188823,  0.92741549]]], device= device)
     rotation_true = Rotate(R_true, device=device)
     # rotate the mesh
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
@@ -244,7 +244,8 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
       if gradient_values[-1]> 1000.: #clipping gradients
-          print(log_rot.grad)
+          print("grad",log_rot.grad)
+          print("log_rot",log_rot)
           log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg:
@@ -441,10 +442,11 @@ def image_grid(
     fig, axarr = plt.subplots(rows, cols, gridspec_kw=gridspec_kw, figsize=(15, 9))
     bleed = 0
     fig.subplots_adjust(left=bleed, bottom=bleed, right=(1 - bleed), top=(1 - bleed))
-
+    
     for ax, im in zip(axarr.ravel(), images):
         if rgb:
             # only render RGB channels
+            im[...,:3] = np.clip(im[...,:3],0.,1.)
             ax.imshow(im[..., :3])
         else:
             # only render Alpha channel
