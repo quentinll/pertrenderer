@@ -299,9 +299,11 @@ def compare_pose_opt(params_file):
     adapt_reg  = params_dic["adapt_reg"]
     params = {"lr-smoothing":[]}
     mean_errors = {}
+    var_errors = {}
     mean_solved = {}
     for x in noise_type:
         mean_errors[x]= []
+        var_errors[x] = []
         mean_solved[x] = []
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
@@ -320,12 +322,15 @@ def compare_pose_opt(params_file):
                     angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
             for l in range(len(noise_type)):
                 mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
+                var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
                 mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
             params["lr-smoothing"] += [(lr,sigma,gamma)]
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
     print(mean_errors, file = file_res)
+    file_res = open(path_res/'angle_std.txt', 'w')
+    print(var_errors, file = file_res)
     file_res = open(path_res/'solved_percentage.txt', 'w')
     print(mean_solved, file = file_res)
     file_params = open(path_res/'params.txt', 'w')
