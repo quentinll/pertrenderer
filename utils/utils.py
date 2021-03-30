@@ -66,7 +66,8 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         image_size=128, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
-        max_faces_per_bin=30
+        max_faces_per_bin=30,
+        perspective_correct=False
     )
     alpha = 1.
     
