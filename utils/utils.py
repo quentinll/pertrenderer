@@ -245,27 +245,6 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_loss = loss_rgb.detach().cpu().numpy()
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
-      #########
-      print("grad",log_rot.grad)
-      def L(log_rot):
-        R = so3_exponential_map(log_rot)#so3_exponential_map_corrected(log_rot)
-        R.register_hook(lambda x: print("rot mat grad",torch.max(x))) 
-        rotation = Rotate(R, device=device)
-        predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
-        predicted_mesh.verts_padded().register_hook(lambda x: print("mesh grad",torch.max(x)))
-        images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
-        predicted_rgb = images_predicted[..., :3]
-        #plt.imshow(predicted_rgb.detach().cpu().numpy()[0])
-        #plt.show()
-        #plt.imshow(target_rgb[0].detach().cpu().numpy())
-        #plt.show()
-        #loss_rgb = ((predicted_rgb) ** 2).mean()
-        loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
-        return loss_rgb
-      pert =  torch.zeros_like(log_rot)
-      pert[0,2] = 1e-6
-      print("num diff",-(L(log_rot-pert) - L(log_rot+pert))/(2*1e-6))
-      ##########
       if gradient_values[-1]> 1000.: #clipping gradients
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
