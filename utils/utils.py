@@ -467,3 +467,4 @@ def image_grid(
     path_fig = Path().cwd()
     path_fig = path_fig/'results/'/title
     plt.savefig(path_fig/'grid_cube.png', bbox_inches='tight')
+    plt.close(fig)
