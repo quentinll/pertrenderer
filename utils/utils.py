@@ -47,7 +47,7 @@ from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg
 from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast
 
-if torch.cuda.is_available():
+if torch.cuda.is_available() and 1:
     device = torch.device("cuda:0")
     torch.cuda.set_device(device)
 else:
@@ -100,7 +100,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 )
         )
         renderers+=[renderer_random]
-    #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
+    log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
     #log_rot_init = torch.tensor([[-0.3333,  1.6948,  2.1758]], device=device)
     return log_rot_init, renderers
     # return log_rot_init, renderer_softras, renderer_random
@@ -182,9 +182,9 @@ def init_target():
     
     meshes = mesh.extend(num_views)
     R_true = random_rotations(1).to(device=device)
-    #R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
-    #     [-0.90048081,  0.23194659, -0.36787909],
-    #     [-0.33718359,  0.16188823,  0.92741549]]], device= device)
+    R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
+         [-0.90048081,  0.23194659, -0.36787909],
+         [-0.33718359,  0.16188823,  0.92741549]]], device= device)
     rotation_true = Rotate(R_true, device=device)
     # rotate the mesh
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
@@ -244,6 +244,27 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_loss = loss_rgb.detach().cpu().numpy()
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
+      #########
+      print("grad",log_rot.grad)
+      def L(log_rot):
+        R = so3_exponential_map(log_rot)#so3_exponential_map_corrected(log_rot)
+        R.register_hook(lambda x: print("rot mat grad",torch.max(x))) 
+        rotation = Rotate(R, device=device)
+        predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
+        predicted_mesh.verts_padded().register_hook(lambda x: print("mesh grad",torch.max(x)))
+        images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
+        predicted_rgb = images_predicted[..., :3]
+        #plt.imshow(predicted_rgb.detach().cpu().numpy()[0])
+        #plt.show()
+        #plt.imshow(target_rgb[0].detach().cpu().numpy())
+        #plt.show()
+        #loss_rgb = ((predicted_rgb) ** 2).mean()
+        loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
+        return loss_rgb
+      pert =  torch.zeros_like(log_rot)
+      pert[0,2] = 1e-6
+      print("num diff",-(L(log_rot-pert) - L(log_rot+pert))/(2*1e-6))
+      ##########
       if gradient_values[-1]> 1000.: #clipping gradients
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
