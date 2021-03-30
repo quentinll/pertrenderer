@@ -8,7 +8,11 @@ Created on Mon Jan 11 17:16:05 2021
 
 import numpy as np
 from datetime import datetime
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 import os
 import ast 
 from pathlib import Path
