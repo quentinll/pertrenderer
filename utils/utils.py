@@ -277,7 +277,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
     np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
     plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
     plt.figure()
     plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
