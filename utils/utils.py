@@ -301,7 +301,7 @@ def compare_pose_opt(params_file):
     MC_samples = params_dic["MC_samples"]
     noise_type = params_dic["noise_type"]
     adapt_reg  = params_dic["adapt_reg"]
-    params = {"lr-smoothing":[]}
+    params = {"lr-smoothing-MC":[]}
     mean_errors = {}
     var_errors = {}
     mean_solved = {}
@@ -312,24 +312,25 @@ def compare_pose_opt(params_file):
         mean_solved[x] = []
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
-            print(j*len(smoothing_list) + k +1,'/',len(lr_list)*len(smoothing_list),'params')
-            (sigma,gamma) = smoothing
-            angle_errors = {}
-            for x in noise_type:
-                angle_errors[x]= []
-            #angle_errors = {"random_rasterizer":[], "softras":[]}
-            for i in range(N_benchmark):
-                print(i+1,'/', N_benchmark, 'test problem')
-                meshes,cameras,lights,target_rgb,R_true = init_target()
-                log_rot_init, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=MC_samples,noise_type= noise_type)
+            for kk, nb_MC in enumerate(MC_samples):
+                print(j*len(smoothing_list)*len(MC_samples) + k*len(MC_samples) +kk +1,'/',len(lr_list)*len(smoothing_list)*len(MC_samples),'params')
+                (sigma,gamma) = smoothing
+                angle_errors = {}
+                for x in noise_type:
+                    angle_errors[x]= []
+                #angle_errors = {"random_rasterizer":[], "softras":[]}
+                for i in range(N_benchmark):
+                    print(i+1,'/', N_benchmark, 'test problem')
+                    meshes,cameras,lights,target_rgb,R_true = init_target()
+                    log_rot_init, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                    for l in range(len(noise_type)):
+                        log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
+                        angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
                 for l in range(len(noise_type)):
-                    log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
-                    angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
-            for l in range(len(noise_type)):
-                mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
-                var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
-                mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
-            params["lr-smoothing"] += [(lr,sigma,gamma)]
+                    mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
+                    var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
+                    mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
+                params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
