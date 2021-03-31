@@ -305,6 +305,7 @@ def compare_pose_opt(params_file):
     mean_errors = {}
     var_errors = {}
     mean_solved = {}
+    exp_setup = {'perturbation': pert_init_intensity, 'Niter': Niter, 'optimizer': optimizer,'N_benchmark': N_benchmark ,'adaptive_regularization': adapt_reg}
     for x in noise_type:
         mean_errors[x]= []
         var_errors[x] = []
@@ -339,6 +340,8 @@ def compare_pose_opt(params_file):
     print(mean_solved, file = file_res)
     file_params = open(path_res/'params.txt', 'w')
     print(params, file = file_params)
+    file_params = open(path_res/'exp_setup.txt', 'w')
+    print(exp_setup, file = file_params)
 
 def visualize_prediction(predicted_mesh, renderer,R,T,
                          target_image, title='', 
@@ -381,7 +384,6 @@ def so3_exponential_map_corrected(log_rot):
         raise ValueError("Input tensor shape has to be Nx3.")
     
     nrms = (log_rot * log_rot).sum(1)
-    # phis ... rotation angles
     batch_size = nrms.size()[0]
     R = torch.zeros(batch_size,3,3)
     for j in range(batch_size):
@@ -427,21 +429,6 @@ def image_grid(
     show_axes: bool = False,
     rgb: bool = True,
 ):
-    """
-    A util function for plotting a grid of images.
-
-    Args:
-        images: (N, H, W, 4) array of RGBA images
-        rows: number of rows in the grid
-        cols: number of columns in the grid
-        fill: boolean indicating if the space between images should be filled
-        show_axes: boolean indicating if the axes of the plots should be visible
-        rgb: boolean, If True, only RGB channels are plotted.
-            If False, only the alpha channel is plotted.
-
-    Returns:
-        None
-    """
     if (rows is None) != (cols is None):
         raise ValueError("Specify either both rows and cols or neither.")
 
