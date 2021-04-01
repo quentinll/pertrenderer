@@ -50,11 +50,15 @@ def smooth_rgb_blend(
     mask = fragments.pix_to_face >= 0
 
     #rasterization
+    #fragments.dists.register_hook(lambda x: print("dists grad",torch.max(x)))
     prob_map = smoothrast.rasterize(fragments.dists)*mask
+    #prob_map.register_hook(lambda x: print("probmap grad",torch.max(x)))
     alpha_chan = torch.prod((1.0 - prob_map), dim=-1)
     
     #aggregation
+    #fragments.zbuf.register_hook(lambda x: print("z_buf grad",torch.max(x)))
     randomax = smoothagg.aggregate(fragments.zbuf,zfar,znear,prob_map,mask)
+    #randomax.register_hook(lambda x: print("aggmap grad",torch.max(x)))
     wz,wb = randomax[...,:-1],randomax[...,-1:]
     weighted_colors = (wz[..., None] * colors).sum(dim=-2)
     weighted_background = wb * background

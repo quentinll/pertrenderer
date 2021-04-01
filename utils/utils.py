@@ -105,7 +105,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 )
         )
         renderers+=[renderer_random]
-    #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
+    log_rot_init = torch.tensor([[ 0.49747742,  0.36187533, -0.92777318]], device=device)
     #log_rot_init = torch.tensor([[-0.3333,  1.6948,  2.1758]], device=device)
     #log_rot_init = torch.tensor([[-3.0002, -0.9406,  0.0781]], device=device)
     #log_rot_init = torch.tensor([[0.9700, 1.5611, 0.3937]], device = device)
