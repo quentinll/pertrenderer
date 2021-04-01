@@ -56,6 +56,8 @@ if torch.cuda.is_available() and 1:
     torch.cuda.set_device(device)
 else:
     device = torch.device("cpu")
+
+torch.set_printoptions(8)
     
 print("device used",device)
 
@@ -105,9 +107,9 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 )
         )
         renderers+=[renderer_random]
-    #log_rot_init = torch.tensor([[ 0.49747742,  0.36187533, -0.92777318]], device=device)
+    #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
     #log_rot_init = torch.tensor([[-0.3333,  1.6948,  2.1758]], device=device)
-    #log_rot_init = torch.tensor([[-3.0002, -0.9406,  0.0781]], device=device)
+    log_rot_init = torch.tensor([[-0.3060,  1.1155,  1.5232]], device=device)
     #log_rot_init = torch.tensor([[0.9700, 1.5611, 0.3937]], device = device)
 
     return log_rot_init, renderers
@@ -252,7 +254,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_loss = loss_rgb.detach().cpu().numpy()
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
-      if gradient_values[-1]> 1000.: #clipping gradients
+      if gradient_values[-1]> 1000. or 1: #clipping gradients
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
           optimizer.zero_grad()
