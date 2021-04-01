@@ -169,7 +169,7 @@ class RandomSimpleShader(nn.Module):
             msg = "Cameras must be specified either at initialization \
                 or in the forward pass of SoftPhongShader"
             raise ValueError(msg)
-
+        #meshes.verts_padded().register_hook(lambda x: print("mesh grad", torch.max(x)))
         texels = meshes.sample_textures(fragments)
         blend_params = kwargs.get("blend_params", self.blend_params)
         znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))

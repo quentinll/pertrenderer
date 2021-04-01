@@ -108,12 +108,9 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         )
         renderers+=[renderer_random]
     #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
-    #log_rot_init = torch.tensor([[-0.3333,  1.6948,  2.1758]], device=device)
-    #log_rot_init = torch.tensor([[-0.3060,  1.1155,  1.5232]], device=device)
-    #log_rot_init = torch.tensor([[0.9700, 1.5611, 0.3937]], device = device)
-
+    #log_rot_init = torch.tensor([[-0.01748946,  2.94965553, -1.79850745]], device=device)
+    
     return log_rot_init, renderers
-    # return log_rot_init, renderer_softras, renderer_random
 
 def init_target():
     datadir = "./data/rubiks"
@@ -257,9 +254,10 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
       if gradient_values[-1]> 1000.: #clipping gradients
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
-          optimizer.zero_grad()
-          continue
-          log_rot.grad = log_rot.grad / gradient_values[-1]*.01
+          log_rot.grad = 1e-5*torch.normal(torch.zeros_like(log_rot.grad))
+          #optimizer.zero_grad()
+          #continue
+          #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg:
           sigma,gamma,_ = diff_renderer.shader.get_smoothing()
