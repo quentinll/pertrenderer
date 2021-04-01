@@ -71,7 +71,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
         max_faces_per_bin=30,
-        perspective_correct=False
+        perspective_correct=True
     )
     alpha = 1.
     
@@ -107,6 +107,9 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         renderers+=[renderer_random]
     #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
     #log_rot_init = torch.tensor([[-0.3333,  1.6948,  2.1758]], device=device)
+    #log_rot_init = torch.tensor([[-3.0002, -0.9406,  0.0781]], device=device)
+    #log_rot_init = torch.tensor([[0.9700, 1.5611, 0.3937]], device = device)
+
     return log_rot_init, renderers
     # return log_rot_init, renderer_softras, renderer_random
 
@@ -324,6 +327,7 @@ def compare_pose_opt(params_file):
                     meshes,cameras,lights,target_rgb,R_true = init_target()
                     log_rot_init, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
                     for l in range(len(noise_type)):
+                        print(noise_type[l])
                         log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
                         angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
                 for l in range(len(noise_type)):
