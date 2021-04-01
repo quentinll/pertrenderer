@@ -255,6 +255,8 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
       if gradient_values[-1]> 1000.: #clipping gradients
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
+          optimizer.zero_grad()
+          continue
           log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg:
