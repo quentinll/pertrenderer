@@ -13,6 +13,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import json
+
 import os
 import ast 
 from pathlib import Path
@@ -310,7 +312,7 @@ def compare_pose_opt(params_file):
     mean_errors = {}
     var_errors = {}
     mean_solved = {}
-    exp_setup = {'perturbation': pert_init_intensity, 'Niter': Niter, 'optimizer': optimizer,'N_benchmark': N_benchmark ,'adaptive_regularization': adapt_reg}
+    exp_setup = {"perturbation": pert_init_intensity, "Niter": Niter, "optimizer": optimizer,"N_benchmark": N_benchmark ,"adaptive_regularization": adapt_reg}
     for x in noise_type:
         mean_errors[x]= []
         var_errors[x] = []
@@ -340,15 +342,20 @@ def compare_pose_opt(params_file):
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
-    print(mean_errors, file = file_res)
+    json.dump(mean_errors, file_res)
+    #print(mean_errors, file = file_res)
     file_res = open(path_res/'angle_std.txt', 'w')
-    print(var_errors, file = file_res)
+    json.dump(var_errors, file_res)
+    #print(var_errors, file = file_res)
     file_res = open(path_res/'solved_percentage.txt', 'w')
-    print(mean_solved, file = file_res)
+    json.dump(mean_solved, file_res)
+    #print(mean_solved, file = file_res)
     file_params = open(path_res/'params.txt', 'w')
-    print(params, file = file_params)
+    json.dump(params, file_params)
+    #print(params, file = file_params)
     file_params = open(path_res/'exp_setup.txt', 'w')
-    print(exp_setup, file = file_params)
+    json.dump(exp_setup, file_params)
+    #print(exp_setup, file = file_params)
 
 def visualize_prediction(predicted_mesh, renderer,R,T,
                          target_image, title='', 

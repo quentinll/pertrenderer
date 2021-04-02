@@ -3,3 +3,5 @@ __pycache__/
 pertrenderer.egg-info/
 dist/
 build/
+read_results.ipynb
+.ipynb_checkpoints/
