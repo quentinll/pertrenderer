@@ -261,18 +261,18 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #continue
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
-      if adapt_reg:
+      if adapt_reg and i>200 and i%50==0:
           sigma,gamma,_ = diff_renderer.shader.get_smoothing()
-          blend_settings = BlendParams(sigma = sigma/1.1,gamma = gamma/2.)
+          blend_settings = BlendParams(sigma = sigma/1.1,gamma = gamma/1.5)
           diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
           diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
-    fig = plt.figure(figsize=(13, 5))
-    ax = fig.gca()
-    ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
-    ax.legend(fontsize="16")
-    ax.set_xlabel("Iteration", fontsize="16")
-    ax.set_ylabel("Loss", fontsize="16")
-    ax.set_title("Loss vs iterations", fontsize="16")
+    #fig = plt.figure(figsize=(13, 5))
+    #ax = fig.gca()
+    #ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
+    #ax.legend(fontsize="16")
+    #ax.set_xlabel("Iteration", fontsize="16")
+    #ax.set_ylabel("Loss", fontsize="16")
+    #ax.set_title("Loss vs iterations", fontsize="16")
     path_fig = Path().cwd()
     path_fig = path_fig/('experiments/results/'+str(exp_id))
     datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
@@ -283,12 +283,12 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
         os.mkdir(path_fig/"optimization_details"/datenow)
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
     np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
-    plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
-    plt.close(fig)
-    plt.figure()
-    plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
+    #plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
+    #plt.close(fig)
+    #plt.figure()
+    #plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
-    plt.close()
+    #plt.close()
     return best_log_rot
 
 
