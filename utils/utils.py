@@ -206,7 +206,7 @@ def init_target():
     return meshes, cameras, lights, target_rgb, R_true
 
 
-def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False):
+def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
     losses = {"rgb": {"weight": 1.0, "values": []},
               "angle_error":{"values":[]}
             }
@@ -218,10 +218,11 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
     log_rot = init_pose.clone()
     log_rot.requires_grad_(True)
+    lr = lr_init
     if optimizer == "sgd":
-        optimizer = torch.optim.SGD([log_rot], lr=lr_init, momentum=0.9)
+        optimizer = torch.optim.SGD([log_rot], lr=lr, momentum=0.9)
     else:
-        optimizer = torch.optim.Adam([log_rot], lr=lr_init)
+        optimizer = torch.optim.Adam([log_rot], lr=lr)
     best_log_rot = log_rot.clone()
     best_loss = np.inf
     for i in loop:
@@ -263,9 +264,11 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
       optimizer.step()
       if adapt_reg and i>200 and i%50==0:
           sigma,gamma,_ = diff_renderer.shader.get_smoothing()
-          blend_settings = BlendParams(sigma = sigma/1.1,gamma = gamma/1.5)
+          blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
           diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
           diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
+          lr = lr/1.5
+          optimizer = torch.optim.Adam([log_rot], lr=lr)
     #fig = plt.figure(figsize=(13, 5))
     #ax = fig.gca()
     #ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
@@ -308,7 +311,8 @@ def compare_pose_opt(params_file):
     MC_samples = params_dic["MC_samples"]
     noise_type = params_dic["noise_type"]
     adapt_reg  = params_dic["adapt_reg"]
-    params = {"lr-smoothing-MC":[]}
+    adapt_params  = params_dic["adapt_params"] if adapt_reg else [(1.,1.)]
+    params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
     mean_errors = {}
     var_errors = {}
     mean_solved = {}
@@ -317,28 +321,41 @@ def compare_pose_opt(params_file):
         mean_errors[x]= []
         var_errors[x] = []
         mean_solved[x] = []
+    test_problems = []
+    meshes,cameras,lights,_,_ = init_target()    
+    for i in range(N_benchmark):
+        _,_,_,target_rgb,R_true = init_target()
+        log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
+        test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
             for kk, nb_MC in enumerate(MC_samples):
-                print(j*len(smoothing_list)*len(MC_samples) + k*len(MC_samples) +kk +1,'/',len(lr_list)*len(smoothing_list)*len(MC_samples),'params')
-                (sigma,gamma) = smoothing
-                angle_errors = {}
-                for x in noise_type:
-                    angle_errors[x]= []
-                #angle_errors = {"random_rasterizer":[], "softras":[]}
-                for i in range(N_benchmark):
-                    print(i+1,'/', N_benchmark, 'test problem')
-                    meshes,cameras,lights,target_rgb,R_true = init_target()
-                    log_rot_init, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                for jj, adapt_param in enumerate(adapt_params):
+                    print(j*len(smoothing_list)*len(MC_samples)*len(adapt_params) + k*len(MC_samples)*len(adapt_params) +kk*len(adapt_params)+jj +1,'/',len(lr_list)*len(smoothing_list)*len(MC_samples)*len(adapt_params),'params')
+                    (sigma,gamma) = smoothing
+                    angle_errors = {}
+                    for x in noise_type:
+                        angle_errors[x]= []
+                    #angle_errors = {"random_rasterizer":[], "softras":[]}
+                    for i in range(N_benchmark):
+                        print(i+1,'/', N_benchmark, 'test problem')
+                        #meshes,cameras,lights,target_rgb,R_true = init_target()
+                        (target_rgb,R_true,log_rot_init) = test_problems[i]
+                        _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        for l in range(len(noise_type)):
+                            print(noise_type[l])
+                            log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
+                            angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
                     for l in range(len(noise_type)):
-                        print(noise_type[l])
-                        log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg)
-                        angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
-                for l in range(len(noise_type)):
-                    mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
-                    var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
-                    mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
-                params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
+                        mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
+                        var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
+                        mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
+                    params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
+                    params["lr"] += [lr]
+                    params["sigma"] += [sigma]
+                    params["gamma"] += [gamma]
+                    params["MC"] += [nb_MC]
+                    params["adapt_params"] += [adapt_param]
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
