@@ -265,8 +265,10 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
       if adapt_reg and i>200 and i%50==0:
           sigma,gamma,_ = diff_renderer.shader.get_smoothing()
           blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
+          nb_samples = diff_renderer.shader.get_nb_samples()
           diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
           diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
+          diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
           lr = lr/1.5
           optimizer = torch.optim.Adam([log_rot], lr=lr)
     #fig = plt.figure(figsize=(13, 5))
@@ -308,10 +310,10 @@ def compare_pose_opt(params_file):
     optimizer = params_dic["optimizer"]
     lr_list = params_dic["lr_list"]
     smoothing_list = params_dic["smoothing_list"]
-    MC_samples = params_dic["MC_samples"]
     noise_type = params_dic["noise_type"]
     adapt_reg  = params_dic["adapt_reg"]
     adapt_params  = params_dic["adapt_params"] if adapt_reg else [(1.,1.)]
+    MC_samples = params_dic["MC_samples"] if not adapt_reg else [8]
     params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
     mean_errors = {}
     var_errors = {}
@@ -346,6 +348,8 @@ def compare_pose_opt(params_file):
                             print(noise_type[l])
                             log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
+                            if angle_errors [noise_type[l]][-1] >10:
+                                print("error angle ",angle_errors [noise_type[l]][-1],"init",log_rot_init, "log_rot_true", so3_log_map(R_true), "final log_rot", log_rot)
                     for l in range(len(noise_type)):
                         mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
                         var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]

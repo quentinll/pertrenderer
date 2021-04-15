@@ -70,15 +70,19 @@ class SmoothAggBase(Module):
     def __init__(self,
                  gamma,
                  alpha,
-                 eps):
+                 eps,
+                 nb_samples=1):
         self.gamma = gamma
         self.alpha = alpha
+        self.nb_samples = nb_samples
         self.eps = eps # Weight for background color
     
     def update_smoothing(self, gamma = 4e-2, alpha = 1.):
         self.gamma = gamma
         self.alpha = alpha
         
+    def update_nb_samples(self, nb_samples):
+        self.nb_samples = nb_samples
         
 class SoftAgg(SmoothAggBase):
     
@@ -112,9 +116,8 @@ class GaussianAgg(SmoothAggBase):
                  alpha = 1.,
                  eps= 1e-10,
                  fixed_noise=False):
-        self.nb_samples = nb_samples
+        super().__init__(gamma,alpha,eps,nb_samples)
         self.fixed_noise = fixed_noise
-        super().__init__(gamma,alpha,eps)
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
         device =zbuf.device
@@ -136,9 +139,8 @@ class CauchyAgg(SmoothAggBase):
                  alpha = 1.,
                  eps = 1e-10,
                  fixed_noise=False):
-        self.nb_samples = nb_samples
+        super().__init__(gamma,alpha,eps,nb_samples)
         self.fixed_noise = fixed_noise
-        super().__init__(gamma,alpha,eps)
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
         device =zbuf.device
@@ -167,9 +169,8 @@ class UniformAgg(SmoothAggBase):
                  alpha = 1.,
                  eps = 1e-10,
                  fixed_noise=False):
-        self.nb_samples = nb_samples
         self.fixed_noise = fixed_noise
-        super().__init__(gamma,alpha,eps)
+        super().__init__(gamma,alpha,eps, nb_samples)
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
         device =zbuf.device

@@ -131,9 +131,16 @@ class RandomPhongShader(nn.Module):
     def get_smoothing(self):
         return self.smoothrast.sigma, self.smoothagg.gamma, self.smoothagg.alpha 
     
+    def get_nb_samples(self):
+        return self.smoothagg.nb_samples 
+    
     def update_smoothing(self,sigma=4e-4,gamma=4e-2,alpha =1.):
         self.smoothrast.update_smoothing(sigma)
         self.smoothagg.update_smoothing(gamma,alpha)
+        
+    def update_nb_samples(self,nb_samples =16):
+        self.smoothrast.update_nb_samples(nb_samples)
+        self.smoothagg.update_nb_samples(nb_samples)
     
 class RandomSimpleShader(nn.Module):
 
@@ -182,9 +189,16 @@ class RandomSimpleShader(nn.Module):
     def get_smoothing(self):
         return self.smoothrast.sigma, self.smoothagg.gamma, self.smoothagg.alpha 
     
+    def get_nb_samples(self):
+        return self.smoothagg.nb_samples 
+    
     def update_smoothing(self,sigma=4e-4,gamma=4e-2,alpha =1.):
         self.smoothrast.update_smoothing(sigma)
         self.smoothagg.update_smoothing(gamma,alpha)
+        
+    def update_nb_samples(self,nb_samples =16):
+        self.smoothrast.update_nb_samples(nb_samples)
+        self.smoothagg.update_nb_samples(nb_samples)
         
         
 class SimpleShader(nn.Module):

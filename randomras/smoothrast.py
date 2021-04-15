@@ -60,9 +60,13 @@ class SmoothRastBase(Module):
     def __init__(self,
                  sigma=2e-4):
         self.sigma = sigma
+        self.nb_samples = 1
         
     def update_smoothing(self, sigma):
         self.sigma = sigma
+        
+    def update_nb_samples(self, nb_samples):
+        self.nb_samples = nb_samples
     
 
 class SoftRast(SmoothRastBase):
