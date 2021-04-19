@@ -64,9 +64,12 @@ torch.set_printoptions(8)
 print("device used",device)
 
 def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
-    R_pert = torch.normal(torch.zeros((1,3),device = device))
-    R_pert = so3_exponential_map((pert_init_intensity*np.pi/180.)*R_pert/R_pert.norm(dim=1))
-    R_init = torch.bmm(R_true.clone(),R_pert).detach().clone()
+    if pert_init_intensity == 0.:
+        R_init= random_rotations(1).to(device=device)
+    else:    
+        R_pert = torch.normal(torch.zeros((1,3),device = device))
+        R_pert = so3_exponential_map((pert_init_intensity*np.pi/180.)*R_pert/R_pert.norm(dim=1))
+        R_init = torch.bmm(R_true.clone(),R_pert).detach().clone()
     log_rot_init = so3_log_map(R_init)
     blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (.0,.0,.0)) #smoothing parameters
       
