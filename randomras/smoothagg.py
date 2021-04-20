@@ -123,11 +123,10 @@ class GaussianAgg(SmoothAggBase):
         device =zbuf.device
         z_inv = (zfar - zbuf) / (zfar - znear) * mask
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
-        #z_map = ((self.gamma/self.alpha)*torch.log(1e-12+prob_map)+ z_inv-z_inv_max) # substract z_inv_max ?
         z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map)+ z_inv-z_inv_max)
-        z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max),dim=-1)
+        z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max ),dim=-1)
         randomarg = randomArgmax.apply
-        randomax = randomarg(z_map, self.nb_samples, self.gamma, "gaussian",self.fixed_noise)
+        randomax = randomarg(z_map, self.nb_samples, self.gamma, "gaussian", self.fixed_noise)
         return randomax
     
     

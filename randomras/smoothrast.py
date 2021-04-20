@@ -84,8 +84,8 @@ class GaussianRast(SmoothRastBase):
     def __init__(self,
                  nb_samples=16,
                  sigma= 2e-4):
-        self.nb_samples = nb_samples
         super().__init__(sigma)
+        self.nb_samples = nb_samples
     
     def rasterize(self,dists):
         randomheavi = randomHeaviside().apply
@@ -96,8 +96,8 @@ class ArctanRast(SmoothRastBase):
     def __init__(self,
                  nb_samples=16,
                  sigma= 2e-4):
-        self.nb_samples = nb_samples
         super().__init__(sigma)
+        self.nb_samples = nb_samples
     
     def rasterize(self,dists):
         prob_map= torch.arctan(-dists/self.sigma)/np.pi + .5
@@ -107,8 +107,8 @@ class AffineRast(SmoothRastBase):
     def __init__(self,
                  nb_samples=16,
                  sigma= 2e-4):
-        self.nb_samples = nb_samples
         super().__init__(sigma)
+        self.nb_samples = nb_samples
     
     def rasterize(self,dists):
         prob_map = torch.where(-dists/self.sigma > .5, torch.ones_like(dists),-dists/self.sigma + .5)

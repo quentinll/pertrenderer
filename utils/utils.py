@@ -65,6 +65,7 @@ print("device used",device)
 
 def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
     if pert_init_intensity == 0.:
+        print("random init ")
         R_init= random_rotations(1).to(device=device)
     else:    
         R_pert = torch.normal(torch.zeros((1,3),device = device))
@@ -348,7 +349,7 @@ def compare_pose_opt(params_file):
                         (target_rgb,R_true,log_rot_init) = test_problems[i]
                         _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
                         for l in range(len(noise_type)):
-                            print(noise_type[l])
+                            print(noise_type[l], log_rot_init)
                             log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
                             if angle_errors [noise_type[l]][-1] >10:
