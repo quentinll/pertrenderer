@@ -62,7 +62,6 @@ def smooth_rgb_blend(
     wz,wb = randomax[...,:-1],randomax[...,-1:]
     weighted_colors = (wz[..., None] * colors).sum(dim=-2)
     weighted_background = wb * background
-    
     pixel_colors[..., :3] = (weighted_colors + weighted_background)
     pixel_colors[..., 3] = 1.0 - alpha_chan
 

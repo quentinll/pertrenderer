@@ -171,8 +171,15 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
         )
         renderers+=[renderer_random]
     src_mesh = ico_sphere(4, device)
+    verts = src_mesh.verts_packed()
+    N = verts.shape[0]
+    center = verts.mean(0)
+    scale = max((verts - center).abs().max(0)[0])*5.
+    src_mesh.offset_verts_(-center.expand(N, 3))
+    src_mesh.scale_verts_((1.0 / float(scale)));
     deform_init = torch.full(src_mesh.verts_packed().shape, 0.0, device=device, requires_grad=True)
-    return src_mesh, deform_init, renderers
+    verts_rgb_init = torch.full([1, N, 3], 0.5, device=device)
+    return src_mesh, deform_init, verts_rgb_init, renderers
 
 
 def init_target():
@@ -284,18 +291,17 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     print("This model has model id " + shapenet_model["model_id"] + ".")
     model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
     model_textures = TexturesAtlas(model_textures[None]).to(device)
-    mesh = Meshes(
+    target_mesh = Meshes(
         verts=[model_verts.to(device)],   
         faces=[model_faces.to(device)],
         textures=model_textures
     )
-    verts = mesh.verts_packed()
+    verts = target_mesh.verts_packed()
     N = verts.shape[0]
     center = verts.mean(0)
     scale = max((verts - center).abs().max(0)[0])
-    mesh.offset_verts_(-center.expand(N, 3))
-    mesh.scale_verts_((1.0 / float(scale)));
-    
+    target_mesh.offset_verts_(-center.expand(N, 3))
+    target_mesh.scale_verts_((1.0 / float(scale)));
     
     num_views = 1
     
@@ -332,39 +338,13 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
             blend_params= blend_settings
         )
     )
-    
-    soft_agg = SoftAgg(gamma=1e-3)
-    soft_rast= SoftRast(sigma=1e-3)
-    
-    renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=camera, 
-            raster_settings=raster_settings
-        ),
-        
-        shader=RandomSimpleShader(
-            device=device,
-            blend_params= blend_settings,
-            smoothrast=soft_rast,
-            smoothagg=soft_agg,
-        )
-    )
+    target_meshes = target_mesh.extend(num_views)
     
     
-    meshes = mesh.extend(num_views)
-    
-    
-    target_images = renderer(meshes, cameras=cameras[0], lights=lights)
-    
+    target_images = renderer(target_meshes, cameras=cameras[0], lights=lights)
     #print(target_images.size())
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
-    plt.figure()
-    plt.imshow(target_images[0].detach().cpu().numpy())
-    path_fig = Path().cwd()
-    datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
-    plt.savefig(path_fig/"test.png", bbox_inches='tight')
-    plt.close()
-    return meshes, cameras, lights, target_rgb
+    return target_meshes, cameras, lights, target_rgb
 
 
 def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
@@ -457,12 +437,11 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     #plt.close()
     return best_log_rot
 
-def optimize_mesh_deformation(mesh,cameras,lights,deform_init,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
-    src_mesh = ico_sphere(4, device)
-    verts_shape = src_mesh.verts_packed().shape
-    sphere_verts_rgb = torch.full([1, verts_shape[0], 3], 0.5, device=device, requires_grad=True)
+def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_init,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
+    verts_shape = base_mesh.verts_packed().shape
+    sphere_verts_rgb = verts_rgb_init.detach().clone().requires_grad_(True)
     deform = deform_init.detach().clone().requires_grad_(True)
-    mesh = src_mesh.offset_verts(deform)
+    mesh = base_mesh.detach().clone().offset_verts(deform)
     losses = {"rgb": {"weight": 1.0, "values": []},
               "angle_error":{"values":[]}
             }
@@ -481,7 +460,7 @@ def optimize_mesh_deformation(mesh,cameras,lights,deform_init,diff_renderer,targ
     best_rgb = sphere_verts_rgb.clone()
     best_loss = np.inf
     for i in loop:
-      predicted_mesh = src_mesh.offset_verts(deform)
+      predicted_mesh = base_mesh.detach().clone().offset_verts(deform)
       predicted_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb) 
       loss = {k: torch.tensor(0.0, device=device) for k in losses}
       images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
@@ -595,6 +574,7 @@ def compare_pose_opt(params_file):
                     params["gamma"] += [gamma]
                     params["MC"] += [nb_MC]
                     params["adapt_params"] += [adapt_param]
+                    
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
@@ -636,18 +616,40 @@ def compare_deform_opt(params_file):
     adapt_params  = params_dic["adapt_params"] if adapt_reg else [(1.,1.)]
     MC_samples = params_dic["MC_samples"] if not adapt_reg else [8]
     params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
-    mean_errors = {}
-    var_errors = {}
-    mean_solved = {}
     exp_setup = {"perturbation": pert_init_intensity, "Niter": Niter, "optimizer": optimizer,"categories": categories ,"adaptive_regularization": adapt_reg}
     IoUs = []
     final_picture = []
     test_problems = []
-    _,cameras,lights,_ = init_target_shapenet( shapenet_path=shapenet_location)    
+    _,cameras,lights,_ = init_target_shapenet( shapenet_path=shapenet_location)  
+    raster_settings = RasterizationSettings(
+        image_size=128, 
+        blur_radius=0.,
+        faces_per_pixel=1, 
+    )
+    
+    blend_settings = BlendParams(background_color = (0.,0.,0.))
+    
+    hard_renderer = MeshRenderer(
+        rasterizer=MeshRasterizer(
+            cameras=cameras, 
+            raster_settings=raster_settings
+        ),
+        
+        shader=SimpleShader(
+            device=device,
+            blend_params= blend_settings
+        )
+    )
     for i in range(N_categories):
         target_mesh,_,_,target_rgb = init_target_shapenet(category = categories[i], shapenet_path=shapenet_location)
-        _, deform_init, _ = init_render_mesh(cameras,lights,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
-        test_problems += [([x.detach().clone() for x in target_rgb],deform_init.detach().clone(), target_mesh.detach().clone())]
+        _, deform_init, verts_rgb_init, _ = init_render_mesh(cameras,lights,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
+        test_problems += [([x.detach().clone() for x in target_rgb],deform_init.detach().clone(), verts_rgb_init.detach().clone(), target_mesh.detach().clone())]
+        os.makedirs(Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i],exist_ok=True)
+        plt.figure()
+        plt.imshow(target_rgb[0].detach().cpu().numpy())
+        path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+        plt.savefig(path_fig/("target.png"), bbox_inches='tight')
+        plt.close()
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
             for kk, nb_MC in enumerate(MC_samples):
@@ -657,18 +659,21 @@ def compare_deform_opt(params_file):
                     IoU = {}
                     for x in noise_type:
                         IoU[x]= {cat:[] for cat in categories}
-                    #angle_errors = {"random_rasterizer":[], "softras":[]}
                     for i in range(N_categories):
                         print(i+1,'/', N_categories, 'test problem')
-                        #meshes,cameras,lights,target_rgb,R_true = init_target()
-                        (target_rgb,deform_init, target_mesh) = test_problems[i]
-                        init_mesh, _, renderers = init_render_mesh(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        (target_rgb,deform_init, verts_rgb_init, target_mesh) = test_problems[i]
+                        base_mesh, _, _, renderers = init_render_mesh(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
                         for l in range(len(noise_type)):
                             print(noise_type[l])
-                            deform, verts_rgb, _ = optimize_mesh_deformation(init_mesh,cameras,lights,deform_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
-                            final_mesh = init_mesh.offset_verts(deform)
+                            deform, verts_rgb, _ = optimize_mesh_deformation(base_mesh,cameras,lights,deform_init, verts_rgb_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
+                            final_mesh = base_mesh.offset_verts(deform)
                             final_mesh.textures = TexturesVertex(verts_features=verts_rgb) 
                             IoU[noise_type[l]][categories[i]]+=[IoU_meshes(final_mesh, target_mesh)]
+                            plt.figure()
+                            plt.imshow(hard_renderer(final_mesh, cameras=cameras[0], lights=lights)[0,...,:3].detach().cpu().numpy())
+                            path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+                            plt.savefig(path_fig/("result_"+noise_type[l]+"smooth="+str(smoothing) +"MC="+str(nb_MC)+"lr="+str(lr)+".png"), bbox_inches='tight')
+                            plt.close()
                             if IoU[noise_type[l]][categories[i]][-1] >10:
                                 print("error angle ",IoU[noise_type[l]][categories[i]][-1],"init",deform_init)
                     IoUs +=[IoU]
@@ -678,6 +683,7 @@ def compare_deform_opt(params_file):
                     params["gamma"] += [gamma]
                     params["MC"] += [nb_MC]
                     params["adapt_params"] += [adapt_param]
+                    
     path_res = Path().cwd()
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_params = open(path_res/'params.txt', 'w')
