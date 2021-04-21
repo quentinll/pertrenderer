@@ -7,10 +7,11 @@ Created on Mon Jan 11 17:10:54 2021
 """
 
 
-from utils.utils import compare_pose_opt
+from utils.utils import compare_pose_opt, compare_deform_opt
 import sys
 
 if __name__ == "__main__":
     n = len(sys.argv)
     params_file = sys.argv[1]
-    compare_pose_opt(params_file)
+    compare_deform_opt(params_file)
+    #compare_pose_opt(params_file)
