@@ -640,16 +640,16 @@ def compare_deform_opt(params_file):
             blend_params= blend_settings
         )
     )
-    for i in range(N_categories):
-        target_mesh,_,_,target_rgb = init_target_shapenet(category = categories[i], shapenet_path=shapenet_location)
-        _, deform_init, verts_rgb_init, _ = init_render_mesh(cameras,lights,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
-        test_problems += [([x.detach().clone() for x in target_rgb],deform_init.detach().clone(), verts_rgb_init.detach().clone(), target_mesh.detach().clone())]
-        os.makedirs(Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i],exist_ok=True)
-        plt.figure()
-        plt.imshow(target_rgb[0].detach().cpu().numpy())
-        path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
-        plt.savefig(path_fig/("target.png"), bbox_inches='tight')
-        plt.close()
+    # for i in range(N_categories):
+    #     target_mesh,_,_,target_rgb = init_target_shapenet(category = categories[i], shapenet_path=shapenet_location)
+    #     _, deform_init, verts_rgb_init, _ = init_render_mesh(cameras,lights,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
+    #     test_problems += [([x.detach().clone() for x in target_rgb], target_mesh.detach().clone())]
+    #     os.makedirs(Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i],exist_ok=True)
+    #     plt.figure()
+    #     plt.imshow(target_rgb[0].detach().cpu().numpy())
+    #     path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+    #     plt.savefig(path_fig/("target.png"), bbox_inches='tight')
+    #     plt.close()
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
             for kk, nb_MC in enumerate(MC_samples):
@@ -661,8 +661,15 @@ def compare_deform_opt(params_file):
                         IoU[x]= {cat:[] for cat in categories}
                     for i in range(N_categories):
                         print(i+1,'/', N_categories, 'test problem')
-                        (target_rgb,deform_init, verts_rgb_init, target_mesh) = test_problems[i]
-                        base_mesh, _, _, renderers = init_render_mesh(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        #(target_rgb, target_mesh) = test_problems[i]
+                        target_mesh,_,_,target_rgb = init_target_shapenet(category = categories[i], shapenet_path=shapenet_location)
+                        os.makedirs(Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i],exist_ok=True)
+                        plt.figure()
+                        plt.imshow(target_rgb[0].detach().cpu().numpy())
+                        path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+                        plt.savefig(path_fig/("target.png"), bbox_inches='tight')
+                        plt.close()
+                        base_mesh, deform_init, verts_rgb_init, renderers = init_render_mesh(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
                         for l in range(len(noise_type)):
                             print(noise_type[l])
                             deform, verts_rgb, _ = optimize_mesh_deformation(base_mesh,cameras,lights,deform_init, verts_rgb_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
