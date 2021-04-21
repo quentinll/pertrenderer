@@ -174,7 +174,7 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
     verts = src_mesh.verts_packed()
     N = verts.shape[0]
     center = verts.mean(0)
-    scale = max((verts - center).abs().max(0)[0])*5.
+    scale = max((verts - center).abs().max(0)[0])*2.
     src_mesh.offset_verts_(-center.expand(N, 3))
     src_mesh.scale_verts_((1.0 / float(scale)));
     deform_init = torch.full(src_mesh.verts_packed().shape, 0.0, device=device, requires_grad=True)
@@ -474,10 +474,7 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
       
       # Print the losses
       loop.set_description("total_loss = %.6f" % loss_rgb)
-    
-      # Plot mesh
-      if i % plot_period == 0:
-          images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
+      
       optimizer.zero_grad()
       # Optimization step
       loss_rgb.backward()
