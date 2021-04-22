@@ -22,6 +22,14 @@ import torch
 from tqdm import tqdm
 from torch.autograd import Function
 from pytorch3d.utils import ico_sphere
+
+from pytorch3d.loss import (
+    chamfer_distance, 
+    mesh_edge_loss, 
+    mesh_laplacian_smoothing, 
+    mesh_normal_consistency,
+)
+
 from pytorch3d.renderer import (
     look_at_view_transform,
     OpenGLPerspectiveCameras, 
@@ -132,7 +140,7 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
     blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (.0,.0,.0)) #smoothing parameters
       
     raster_settings_soft = RasterizationSettings(
-        image_size=128, 
+        image_size=64, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
         max_faces_per_bin=30,
@@ -320,7 +328,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
                                       T=T[None, 0, ...]) 
     
     raster_settings = RasterizationSettings(
-        image_size=128, 
+        image_size=64, 
         blur_radius=0.,
         faces_per_pixel=1, 
     )
@@ -468,6 +476,12 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
       # image from our dataset
       predicted_rgb = images_predicted[..., :3]
       loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
+      loss_edge= mesh_edge_loss(predicted_mesh)
+      # mesh normal consistency
+      loss_normal = mesh_normal_consistency(predicted_mesh) 
+      # mesh laplacian smoothing
+      loss_laplacian = mesh_laplacian_smoothing(predicted_mesh, method="uniform")
+      total_loss = 1.*loss_rgb + 1e-2*loss_normal  + 1.*loss_laplacian +1.*loss_edge
       loss["rgb"] += loss_rgb 
       for k, l in loss.items():
           losses[k]["values"].append(l.detach().cpu().item())
@@ -477,7 +491,7 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
       
       optimizer.zero_grad()
       # Optimization step
-      loss_rgb.backward()
+      total_loss.backward()
       if loss_rgb.detach().cpu().numpy() < best_loss:
           best_loss = loss_rgb.detach().cpu().numpy()
           best_deform = deform.clone()
@@ -533,7 +547,7 @@ def compare_pose_opt(params_file):
     for x in noise_type:
         mean_errors[x]= []
         var_errors[x] = []
-        mean_solved[x] = []
+        mean_solved[x] = {1:[],2:[], 5:[], 10:[], 15:[], 20:[], 25: [], 35: [], 45:[] }
     test_problems = []
     meshes,cameras,lights,_,_ = init_target()    
     for i in range(N_benchmark):
@@ -564,7 +578,8 @@ def compare_pose_opt(params_file):
                     for l in range(len(noise_type)):
                         mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
                         var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
-                        mean_solved[noise_type[l]] += [sum([1 if angle <10. else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
+                        for thresh in mean_solved[noise_type[l]]:
+                            mean_solved[noise_type[l]][thresh] += [sum([1 if angle <thresh else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
                     params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
                     params["lr"] += [lr]
                     params["sigma"] += [sigma]
@@ -637,16 +652,6 @@ def compare_deform_opt(params_file):
             blend_params= blend_settings
         )
     )
-    # for i in range(N_categories):
-    #     target_mesh,_,_,target_rgb = init_target_shapenet(category = categories[i], shapenet_path=shapenet_location)
-    #     _, deform_init, verts_rgb_init, _ = init_render_mesh(cameras,lights,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
-    #     test_problems += [([x.detach().clone() for x in target_rgb], target_mesh.detach().clone())]
-    #     os.makedirs(Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i],exist_ok=True)
-    #     plt.figure()
-    #     plt.imshow(target_rgb[0].detach().cpu().numpy())
-    #     path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
-    #     plt.savefig(path_fig/("target.png"), bbox_inches='tight')
-    #     plt.close()
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
             for kk, nb_MC in enumerate(MC_samples):
