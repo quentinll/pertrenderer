@@ -140,13 +140,13 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
     return log_rot_init, renderers
 
 def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
-    blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (.0,.0,.0)) #smoothing parameters
+    blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (1.0,1.0,1.0)) #smoothing parameters
       
     raster_settings_soft = RasterizationSettings(
         image_size=64, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
-        max_faces_per_bin=30,
+        #max_faces_per_bin=1000,
         perspective_correct=True
     )
     alpha = 1.
@@ -171,13 +171,12 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
                 cameras=camera, 
                 raster_settings=raster_settings_soft
             ),
-            #shader=RandomPhongShader(device=device,
             shader=RandomSimpleShader(device=device,
                 cameras=camera,
                 lights=lights,
                 blend_params=blend_settings,
-                smoothrast = random_rast,
-                smoothagg = random_agg
+                #smoothrast = random_rast,
+                #smoothagg = random_agg
                 )
         )
         renderers+=[renderer_random]
@@ -190,7 +189,7 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
     scale = max((verts - center).abs().max(0)[0])*2.
     src_mesh.offset_verts_(-center.expand(N, 3))
     src_mesh.scale_verts_((1.0 / float(scale)));
-    deform_init = torch.full(src_mesh.verts_packed().shape, 0.0, device=device, requires_grad=True)
+    deform_init = torch.full(src_mesh.verts_packed().shape, 0.0, device=device)
     verts_rgb_init = torch.full([1, N, 3], 1., device=device)
     return src_mesh, deform_init, verts_rgb_init, renderers
 
@@ -343,7 +342,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
         faces_per_pixel=1, 
     )
     
-    blend_settings = BlendParams(background_color = (0.,0.,0.))
+    blend_settings = BlendParams(background_color = (1.,1.,1.))
     
     renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
@@ -472,9 +471,10 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
     verts_shape = base_mesh.verts_packed().shape
     sphere_verts_rgb = verts_rgb_init.detach().clone().requires_grad_(True)
     deform = deform_init.detach().clone().requires_grad_(True)
-    mesh = base_mesh.detach().clone().offset_verts(deform)
     losses = {"rgb": {"weight": 1.0, "values": []},
-              "angle_error":{"values":[]}
+              "silhouette":{"values":[]},
+              "laplacian":{"values":[]},
+              "total":{"values":[]},
             }
     gradient_values = []
     # Plot period for the losses
@@ -491,42 +491,45 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
     best_rgb = sphere_verts_rgb.clone()
     best_loss = np.inf
     for i in loop:
-        #print( mesh_laplacian_smoothing(base_mesh, method="uniform"))
-        # import sys
-        # local_vars = list(locals().items())
-        # for var, obj in local_vars:
-        #      print(var, sys.getsizeof(obj))
         predicted_mesh = base_mesh.detach().clone().offset_verts(deform)
-        predicted_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb) 
+        predicted_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb.clamp(min=0.,max=1.)) 
         loss = {k: torch.tensor(0.0, device=device) for k in losses}
         images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
-        # Squared L2 distance between the predicted RGB image and the target 
-        # image from our dataset
         predicted_rgb = images_predicted[..., :3]
-        loss_rgb = torch.abs(predicted_rgb - target_rgb[0]).sum()
-        #loss_edge= mesh_edge_loss(predicted_mesh)
-        # mesh normal consistency
-        #loss_normal = mesh_normal_consistency(predicted_mesh) 
-        # mesh laplacian smoothing
-        #print(predicted_mesh)
-        loss_laplacian = mesh_laplacian_smoothing(predicted_mesh, method="uniform")
+        loss_rgb = torch.abs(predicted_rgb - target_rgb[0]).mean()
+        loss_laplacian =  mesh_laplacian_smoothing(predicted_mesh, method="uniform")
         silhouette_predicted = images_predicted[..., 3:]
+        # plt.figure()
+        # plt.imshow(predicted_rgb[0].detach().cpu().numpy())
+        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/"airplane"
+        # plt.savefig(path_fig/("rgb_iter"+str(i)+".png"), bbox_inches='tight')
+        # plt.close()
+        # plt.figure()
+        # plt.imshow(silhouette_predicted[0].detach().cpu().numpy())
+        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/"airplane"
+        # plt.savefig(path_fig/("silhouette_iter"+str(i)+".png"), bbox_inches='tight')
+        # plt.close()
         loss_silhouette = torch.abs(silhouette_predicted*target_alpha[0]).sum()
         loss_silhouette /= torch.abs(silhouette_predicted+target_alpha[0]-silhouette_predicted*target_alpha[0]).sum()
-        total_loss = 1.0e0*loss_rgb +1.0e-3*loss_laplacian +1.0e0*loss_silhouette#+1.*loss_edge + 1e-2*loss_normal  
+        loss_silhouette = 1- loss_silhouette
+        total_loss = 1.*loss_rgb +5.0e-3*loss_laplacian +1.0e0*loss_silhouette#+1.*loss_edge + 1e-2*loss_normal  
         loss["rgb"] += loss_rgb 
+        loss["silhouette"] += loss_silhouette
+        loss["laplacian"] += loss_laplacian
+        loss["total"] += total_loss
         for k, l in loss.items():
             losses[k]["values"].append(l.detach().cpu().item())
         
         # Print the losses
-        loop.set_description("total_loss = %.6f" % loss_rgb)
+        loop.set_description("total_loss = %.6f" % total_loss)
         
         optimizer.zero_grad()
         # Optimization step
         total_loss.backward()
-        if loss_rgb.detach().cpu().numpy() < best_loss:
-            best_loss = loss_rgb.detach().cpu().numpy()
+        if total_loss.detach().cpu().numpy() < best_loss:
+            best_loss = total_loss.detach().cpu().numpy()
             best_deform = deform.clone()
+            best_rgb = sphere_verts_rgb.clone()
         gradient_values += [torch.norm(deform.grad).detach().cpu().item()]
         if gradient_values[-1]> 1000.: #clipping gradients
             deform.grad = 1e-5*torch.normal(torch.zeros_like(deform.grad))
@@ -539,7 +542,7 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
             diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
             diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
             lr = lr/1.5
-            optimizer = torch.optim.Adam([deform], lr=lr)
+            optimizer = torch.optim.Adam([deform,sphere_verts_rgb], lr=lr)
     path_fig = Path().cwd()
     path_fig = path_fig/('experiments/results/'+str(exp_id))
     datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
@@ -551,7 +554,7 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
     np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
-    return best_deform, best_rgb, mesh
+    return best_deform, best_rgb
 
 
 def compare_pose_opt(params_file):
@@ -623,19 +626,14 @@ def compare_pose_opt(params_file):
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
     json.dump(mean_errors, file_res)
-    #print(mean_errors, file = file_res)
     file_res = open(path_res/'angle_std.txt', 'w')
     json.dump(var_errors, file_res)
-    #print(var_errors, file = file_res)
     file_res = open(path_res/'solved_percentage.txt', 'w')
     json.dump(mean_solved, file_res)
-    #print(mean_solved, file = file_res)
     file_params = open(path_res/'params.txt', 'w')
     json.dump(params, file_params)
-    #print(params, file = file_params)
     file_params = open(path_res/'exp_setup.txt', 'w')
     json.dump(exp_setup, file_params)
-    #print(exp_setup, file = file_params)
 
 def IoU_meshes(mesh1,mesh2):
     return 0
@@ -666,12 +664,12 @@ def compare_deform_opt(params_file):
     test_problems = []
     _,cameras,lights,_,_ = init_target_shapenet( shapenet_path=shapenet_location)  
     raster_settings = RasterizationSettings(
-        image_size=128, 
+        image_size=64, 
         blur_radius=0.,
         faces_per_pixel=1, 
     )
     
-    blend_settings = BlendParams(background_color = (0.,0.,0.))
+    blend_settings = BlendParams(background_color = (1.,1.,1.))
     
     hard_renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
@@ -684,6 +682,15 @@ def compare_deform_opt(params_file):
             blend_params= blend_settings
         )
     )
+    silhouette_renderer = MeshRenderer(
+        rasterizer=MeshRasterizer(
+            cameras=cameras, 
+            raster_settings=raster_settings
+        ),
+        
+        shader=SoftSilhouetteShader(
+            blend_params= BlendParams(sigma=1e-12))
+    )
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
             for kk, nb_MC in enumerate(MC_samples):
@@ -694,26 +701,43 @@ def compare_deform_opt(params_file):
                     for x in noise_type:
                         IoU[x]= {cat:[] for cat in categories}
                     for i in range(N_categories):
-                        print(i+1,'/', N_categories, 'test problem')
+                        print(i+1,'/', N_categories, 'category ('+ str(categories[i])+')')
                         #(target_rgb, target_mesh) = test_problems[i]
                         target_mesh,_,_,target_rgb, target_alpha = init_target_shapenet(category = categories[i], shapenet_path=shapenet_location)
                         os.makedirs(Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i],exist_ok=True)
                         plt.figure()
                         plt.imshow(target_rgb[0].detach().cpu().numpy())
                         path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
-                        plt.savefig(path_fig/("target.png"), bbox_inches='tight')
+                        plt.savefig(path_fig/("target_rgb.png"), bbox_inches='tight')
                         plt.close()
+                        # plt.figure()
+                        # plt.imshow(target_alpha[0].detach().cpu().numpy())
+                        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+                        # plt.savefig(path_fig/("target_silhouette.png"), bbox_inches='tight')
+                        # plt.close()
                         base_mesh, deform_init, verts_rgb_init, renderers = init_render_mesh(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        # init_mesh = base_mesh.offset_verts(deform_init)
+                        # init_mesh.textures = TexturesVertex(verts_features=verts_rgb_init) 
+                        # plt.figure()
+                        # plt.imshow(renderers[0](init_mesh, cameras=cameras[0], lights=lights)[0,...,:3].detach().cpu().numpy())
+                        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+                        # plt.savefig(path_fig/("init_rgb.png"), bbox_inches='tight')
+                        # plt.close()
                         for l in range(len(noise_type)):
                             print(noise_type[l])
-                            deform, verts_rgb, _ = optimize_mesh_deformation(base_mesh,cameras,lights,deform_init, verts_rgb_init, renderers[l], target_rgb, target_alpha, exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
+                            deform, verts_rgb = optimize_mesh_deformation(base_mesh,cameras,lights,deform_init, verts_rgb_init, renderers[l], target_rgb, target_alpha, exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             final_mesh = base_mesh.offset_verts(deform)
-                            final_mesh.textures = TexturesVertex(verts_features=verts_rgb) 
+                            final_mesh.textures = TexturesVertex(verts_features=verts_rgb)
                             IoU[noise_type[l]][categories[i]]+=[IoU_meshes(final_mesh, target_mesh)]
                             plt.figure()
                             plt.imshow(hard_renderer(final_mesh, cameras=cameras[0], lights=lights)[0,...,:3].detach().cpu().numpy())
                             path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
                             plt.savefig(path_fig/("result_"+noise_type[l]+"smooth="+str(smoothing) +"MC="+str(nb_MC)+"lr="+str(lr)+".png"), bbox_inches='tight')
+                            plt.close()
+                            plt.figure()
+                            plt.imshow(silhouette_renderer(final_mesh, cameras=cameras[0], lights=lights)[0,...,3:].detach().cpu().numpy())
+                            path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
+                            plt.savefig(path_fig/("silhouette_"+noise_type[l]+"smooth="+str(smoothing) +"MC="+str(nb_MC)+"lr="+str(lr)+".png"), bbox_inches='tight')
                             plt.close()
                             if IoU[noise_type[l]][categories[i]][-1] >10:
                                 print("error angle ",IoU[noise_type[l]][categories[i]][-1],"init",deform_init)
