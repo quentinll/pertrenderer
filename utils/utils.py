@@ -7,7 +7,7 @@ Created on Mon Jan 11 17:16:05 2021
 """
 
 import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+#os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 import numpy as np
 from datetime import datetime
@@ -74,7 +74,7 @@ from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg
 from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast
 
-if torch.cuda.is_available() and 1:
+if torch.cuda.is_available() and 0:
     device = torch.device("cuda:0")
     torch.cuda.set_device(device)
 else:
@@ -99,7 +99,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         image_size=128, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
-        max_faces_per_bin=30,
+        #max_faces_per_bin=10000,
         perspective_correct=True
     )
     alpha = 1.
@@ -175,8 +175,8 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
                 cameras=camera,
                 lights=lights,
                 blend_params=blend_settings,
-                #smoothrast = random_rast,
-                #smoothagg = random_agg
+                smoothrast = random_rast,
+                smoothagg = random_agg
                 )
         )
         renderers+=[renderer_random]
@@ -194,47 +194,104 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
     return src_mesh, deform_init, verts_rgb_init, renderers
 
 
-def init_target():
-    datadir = "./data/rubiks"
-    obj_filename = os.path.join(datadir, "cube2.obj")
-    fn = 'cube_p.npz'
-    with np.load(f'{datadir}/{fn}') as f:
-        pos_idx, pos, col_idx, col = f.values()
-      
-    print("Mesh has %d triangles and %d vertices." % (pos_idx.shape[0], pos.shape[0]))
-    if pos.shape[1] == 4: pos = pos[:, 0:3]
-    pos_idx = torch.from_numpy(pos_idx.astype(np.int32)).to(device = device).unsqueeze(0)
-    vtx_pos = torch.from_numpy(pos.astype(np.float32)).to(device = device).unsqueeze(0)
-    col_idx = torch.from_numpy(col_idx.astype(np.int32)).to(device = device).unsqueeze(0)
-    vtx_col = torch.from_numpy(col.astype(np.float32)).to(device = device)
+def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
+    if category=="cube":
+        datadir = "./data/rubiks"
+        obj_filename = os.path.join(datadir, "cube2.obj")
+        fn = 'cube_p.npz'
+        with np.load(f'{datadir}/{fn}') as f:
+            pos_idx, pos, col_idx, col = f.values()
+          
+        print("Mesh has %d triangles and %d vertices." % (pos_idx.shape[0], pos.shape[0]))
+        if pos.shape[1] == 4: pos = pos[:, 0:3]
+        pos_idx = torch.from_numpy(pos_idx.astype(np.int32)).to(device = device).unsqueeze(0)
+        vtx_pos = torch.from_numpy(pos.astype(np.float32)).to(device = device).unsqueeze(0)
+        col_idx = torch.from_numpy(col_idx.astype(np.int32)).to(device = device).unsqueeze(0)
+        vtx_col = torch.from_numpy(col.astype(np.float32)).to(device = device)
+        
+        #reorder color to have same cube as softras
+        green_col  = vtx_col[3,:].clone()
+        vtx_col[3,:] =vtx_col[0,:]
+        vtx_col[0,:] = green_col
+          
+        model_verts, model_faces, aux= load_obj(obj_filename)
+        l = aux.texture_images['cube'].size()[1]//6
+        for i in range(6):
+          aux.texture_images['cube'][:,i*l:(i+1)*l,:] = vtx_col[i,:].unsqueeze(0).unsqueeze(0).repeat(aux.texture_images['cube'].size()[0],l,1)
+        verts_uvs = aux.verts_uvs[None, ...]  # (1, V, 2)
+        faces_uvs = model_faces.textures_idx[None, ...]  # (1, F, 3)
+        tex_maps = aux.texture_images
+        texture_image = list(tex_maps.values())[0]
+        texture_image = texture_image[None, ...]  # (1, H, W, 3)
+        model_textures = Textures(verts_uvs=verts_uvs, faces_uvs=faces_uvs, maps=texture_image)
+        mesh = Meshes(verts=[model_verts], faces=[model_faces.verts_idx], textures=model_textures).to(device=device)
+    else:
+        dic_categories = {
+        "table":"04379243",
+        "car":"02958343",
+        "chair":"03001627" ,
+        "airplane":"02691156",
+        "sofa": "04256520",
+        "rifle": "04090263",
+        "lamp":"03636649" }
+        SHAPENET_PATH = shapenet_path
+       
+        # available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
+        # verts, faces, aux = load_obj(
+        # SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[0]+'/'+'model.obj',
+        # device=device,
+        # load_textures=True,
+        # create_texture_atlas=True,
+        # texture_atlas_size=4,
+        # texture_wrap="repeat",
+        # )
+        
+        # atlas = aux.texture_atlas
+        # mesh = Meshes(
+        #     verts=[verts],
+        #     faces=[faces.verts_idx],
+        #     textures=TexturesAtlas(atlas=[atlas]),
+        # )
+        shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
+        shapenet_model = shapenet_dataset[0]
+        print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
+        print("This model has model id " + shapenet_model["model_id"] + ".")
+        model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
+        model_textures = TexturesAtlas(model_textures[None]).to(device)
+        mesh = Meshes(
+            verts=[model_verts.to(device)],   
+            faces=[model_faces.to(device)],
+            textures=model_textures
+        )
+        #####
+        # model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
+        # model_textures = TexturesAtlas(model_textures[None]).to(device)
+        # target_mesh = Meshes(
+        #     verts=[model_verts.to(device)],   
+        #     faces=[model_faces.to(device)],
+        #     textures=model_textures
+        # )
+        # verts = target_mesh.verts_packed()
+        # N = verts.shape[0]
+        # center = verts.mean(0)
+        # scale = max((verts - center).abs().max(0)[0])
+        # target_mesh.offset_verts_(-center.expand(N, 3))
+        # target_mesh.scale_verts_((1.0 / float(scale)))
+        # num_views = 1
+        # target_meshes = target_mesh.extend(num_views)
+        ####
     
-    #reorder color to have same cube as softras
-    green_col  = vtx_col[3,:].clone()
-    vtx_col[3,:] =vtx_col[0,:]
-    vtx_col[0,:] = green_col
-      
-    verts, faces, aux= load_obj(obj_filename)
-    l = aux.texture_images['cube'].size()[1]//6
-    for i in range(6):
-      aux.texture_images['cube'][:,i*l:(i+1)*l,:] = vtx_col[i,:].unsqueeze(0).unsqueeze(0).repeat(aux.texture_images['cube'].size()[0],l,1)
-    verts_uvs = aux.verts_uvs[None, ...]  # (1, V, 2)
-    faces_uvs = faces.textures_idx[None, ...]  # (1, F, 3)
-    tex_maps = aux.texture_images
-    texture_image = list(tex_maps.values())[0]
-    texture_image = texture_image[None, ...]  # (1, H, W, 3)
-    tex = Textures(verts_uvs=verts_uvs, faces_uvs=faces_uvs, maps=texture_image)
-    mesh = Meshes(verts=[verts], faces=[faces.verts_idx], textures=tex).to(device=device)
-    verts = mesh.verts_packed()
-    N = verts.shape[0]
-    center = verts.mean(0)
-    scale = max((verts - center).abs().max(0)[0])
+    model_verts = mesh.verts_packed()
+    N = model_verts.shape[0]
+    center = model_verts.mean(0)
+    scale = max((model_verts - center).abs().max(0)[0])
     mesh.offset_verts_(-center.expand(N, 3))
     mesh.scale_verts_((1.0 / float(scale)));
     
     
     num_views = 1
     
-    elev = torch.linspace(20, 240, num_views)
+    elev = torch.linspace(30, 240, num_views)
     azim = torch.linspace(120,150, num_views)
     
     lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
@@ -267,8 +324,32 @@ def init_target():
             blend_params= blend_settings
         )
     )
+    ####
+    raster_settings_soft = RasterizationSettings(
+        image_size=64, 
+        blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
+        faces_per_pixel=12, 
+        #max_faces_per_bin=1000,
+        perspective_correct=True
+    )
+    alpha=1.
+    random_rast = SoftRast(sigma = 1e-4)
+    random_agg = SoftAgg(gamma= 1e-3, alpha = alpha )
     
-    
+    diff_renderer = MeshRenderer(
+        rasterizer=MeshRasterizer(
+            cameras=camera, 
+            raster_settings=raster_settings_soft
+        ),
+        shader=RandomSimpleShader(device=device,
+            cameras=camera,
+            lights=lights,
+            blend_params=blend_settings,
+            smoothrast = random_rast,
+            smoothagg = random_agg
+            )
+    )
+    ####
     meshes = mesh.extend(num_views)
     R_true = random_rotations(1).to(device=device)
     #R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
@@ -278,8 +359,8 @@ def init_target():
     # rotate the mesh
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
     
-    
     target_images = renderer(meshes_rotated, cameras=cameras[0], lights=lights)
+    diff_renderer(meshes_rotated, cameras=cameras[0], lights=lights)
     #target_images = renderer(meshes, R=R, T=T, lights=lights)
     
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
@@ -301,7 +382,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     '04256520', '04379243', '04401088', '04530566']
     SHAPENET_PATH = shapenet_path
     
-    shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[nmr_classes[1]],load_textures=True)
+    shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
     
     shapenet_model = shapenet_dataset[0]
     print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
@@ -318,7 +399,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     center = verts.mean(0)
     scale = max((verts - center).abs().max(0)[0])
     target_mesh.offset_verts_(-center.expand(N, 3))
-    target_mesh.scale_verts_((1.0 / float(scale)));
+    target_mesh.scale_verts_((1.0 / float(scale)))
     
     num_views = 1
     
@@ -328,7 +409,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
     
     #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
-    R, T = look_at_view_transform(dist=1.7, elev=elev, azim=azim)
+    R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
@@ -364,6 +445,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
         shader=SoftSilhouetteShader(
             blend_params= BlendParams(sigma=1e-12))
     )
+    
     
     target_meshes = target_mesh.extend(num_views)
     
@@ -467,7 +549,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     return best_log_rot
 
 def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_init,diff_renderer,target_rgb,target_alpha,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
     verts_shape = base_mesh.verts_packed().shape
     sphere_verts_rgb = verts_rgb_init.detach().clone().requires_grad_(True)
     deform = deform_init.detach().clone().requires_grad_(True)
@@ -565,6 +647,7 @@ def compare_pose_opt(params_file):
     smoothing_list = [(1e-2,1e-3)]
     exp_id = params_dic["exp_id"]
     N_benchmark = params_dic["N_benchmark"]
+    categories = params_dic["categories"]
     pert_init_intensity = params_dic["pert_init_intensity"]
     Niter = params_dic["Niter"]
     optimizer = params_dic["optimizer"]
@@ -584,9 +667,9 @@ def compare_pose_opt(params_file):
         var_errors[x] = []
         mean_solved[x] = {1:[],2:[], 5:[], 10:[], 15:[], 20:[], 25: [], 35: [], 45:[] }
     test_problems = []
-    meshes,cameras,lights,_,_ = init_target()    
+    meshes,cameras,lights,_,_ = init_target(category=categories[0])    
     for i in range(N_benchmark):
-        _,_,_,target_rgb,R_true = init_target()
+        _,_,_,target_rgb,R_true = init_target(category=categories[0])
         log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
         test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
@@ -664,7 +747,7 @@ def compare_deform_opt(params_file):
     test_problems = []
     _,cameras,lights,_,_ = init_target_shapenet( shapenet_path=shapenet_location)  
     raster_settings = RasterizationSettings(
-        image_size=64, 
+        image_size=128, 
         blur_radius=0.,
         faces_per_pixel=1, 
     )
