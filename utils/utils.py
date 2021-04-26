@@ -74,7 +74,7 @@ from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg
 from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast
 
-if torch.cuda.is_available() and 0:
+if torch.cuda.is_available() and 1:
     device = torch.device("cuda:0")
     torch.cuda.set_device(device)
 else:
@@ -688,7 +688,7 @@ def compare_pose_opt(params_file):
                         (target_rgb,R_true,log_rot_init) = test_problems[i]
                         _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
                         for l in range(len(noise_type)):
-                            print(noise_type[l], log_rot_init)
+                            print(noise_type[l])
                             log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
                             if angle_errors [noise_type[l]][-1] >10:
