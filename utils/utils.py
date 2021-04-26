@@ -98,7 +98,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
     raster_settings_soft = RasterizationSettings(
         image_size=128, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
-        faces_per_pixel=12, 
+        faces_per_pixel=100, 
         #max_faces_per_bin=10000,
         perspective_correct=True
     )
@@ -234,53 +234,45 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         "sofa": "04256520",
         "rifle": "04090263",
         "lamp":"03636649" }
+        dic_categories = {
+        "table":"04379243",
+        "car":"02958343",
+        "chair":"03001627" ,
+        "airplane":"02691156",
+        "sofa": "04256520",
+        "rifle": "04090263",
+        "lamp":"03636649" }
         SHAPENET_PATH = shapenet_path
-       
-        # available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
-        # verts, faces, aux = load_obj(
-        # SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[0]+'/'+'model.obj',
-        # device=device,
-        # load_textures=True,
-        # create_texture_atlas=True,
-        # texture_atlas_size=4,
-        # texture_wrap="repeat",
-        # )
-        
-        # atlas = aux.texture_atlas
-        # mesh = Meshes(
-        #     verts=[verts],
-        #     faces=[faces.verts_idx],
-        #     textures=TexturesAtlas(atlas=[atlas]),
-        # )
-        shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
-        shapenet_model = shapenet_dataset[0]
-        print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
-        print("This model has model id " + shapenet_model["model_id"] + ".")
-        model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
-        model_textures = TexturesAtlas(model_textures[None]).to(device)
-        mesh = Meshes(
-            verts=[model_verts.to(device)],   
-            faces=[model_faces.to(device)],
-            textures=model_textures
+        available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
+        model_id = np.random.randint(low = 0, high = len(available_models))
+        print("model id: ", available_models[model_id])
+        verts, faces, aux = load_obj(
+        SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
+        device=device,
+        load_textures=True,
+        create_texture_atlas=True,
+        texture_atlas_size=4,
+        texture_wrap="repeat",
         )
-        #####
+        
+        atlas = aux.texture_atlas
+        mesh = Meshes(
+            verts=[verts],
+            faces=[faces.verts_idx],
+            textures=TexturesAtlas(atlas=[atlas]),
+        )
+        # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
+        # shapenet_model = shapenet_dataset[0]
+        # print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
+        # print("This model has model id " + shapenet_model["model_id"] + ".")
         # model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
         # model_textures = TexturesAtlas(model_textures[None]).to(device)
-        # target_mesh = Meshes(
+        # mesh = Meshes(
         #     verts=[model_verts.to(device)],   
         #     faces=[model_faces.to(device)],
         #     textures=model_textures
         # )
-        # verts = target_mesh.verts_packed()
-        # N = verts.shape[0]
-        # center = verts.mean(0)
-        # scale = max((verts - center).abs().max(0)[0])
-        # target_mesh.offset_verts_(-center.expand(N, 3))
-        # target_mesh.scale_verts_((1.0 / float(scale)))
-        # num_views = 1
-        # target_meshes = target_mesh.extend(num_views)
-        ####
-    
+      
     model_verts = mesh.verts_packed()
     N = model_verts.shape[0]
     center = model_verts.mean(0)
@@ -297,7 +289,10 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
     
     #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
-    R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
+    if category=="cube":
+        R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
+    else:
+        R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
@@ -324,32 +319,6 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
             blend_params= blend_settings
         )
     )
-    ####
-    raster_settings_soft = RasterizationSettings(
-        image_size=64, 
-        blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
-        faces_per_pixel=12, 
-        #max_faces_per_bin=1000,
-        perspective_correct=True
-    )
-    alpha=1.
-    random_rast = SoftRast(sigma = 1e-4)
-    random_agg = SoftAgg(gamma= 1e-3, alpha = alpha )
-    
-    diff_renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=camera, 
-            raster_settings=raster_settings_soft
-        ),
-        shader=RandomSimpleShader(device=device,
-            cameras=camera,
-            lights=lights,
-            blend_params=blend_settings,
-            smoothrast = random_rast,
-            smoothagg = random_agg
-            )
-    )
-    ####
     meshes = mesh.extend(num_views)
     R_true = random_rotations(1).to(device=device)
     #R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
@@ -360,7 +329,6 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
     
     target_images = renderer(meshes_rotated, cameras=cameras[0], lights=lights)
-    diff_renderer(meshes_rotated, cameras=cameras[0], lights=lights)
     #target_images = renderer(meshes, R=R, T=T, lights=lights)
     
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
