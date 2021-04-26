@@ -614,6 +614,7 @@ def compare_pose_opt(params_file):
     lr_list = [1e-2,1e-3]
     smoothing_list = [(1e-2,1e-3)]
     exp_id = params_dic["exp_id"]
+    shapenet_location = params_dic["shapenet_location"]
     N_benchmark = params_dic["N_benchmark"]
     categories = params_dic["categories"]
     pert_init_intensity = params_dic["pert_init_intensity"]
@@ -635,9 +636,9 @@ def compare_pose_opt(params_file):
         var_errors[x] = []
         mean_solved[x] = {1:[],2:[], 5:[], 10:[], 15:[], 20:[], 25: [], 35: [], 45:[] }
     test_problems = []
-    meshes,cameras,lights,_,_ = init_target(category=categories[0])    
+    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location)    
     for i in range(N_benchmark):
-        _,_,_,target_rgb,R_true = init_target(category=categories[0])
+        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location)
         log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
         test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
