@@ -7,7 +7,7 @@ Created on Mon Jan 11 17:16:05 2021
 """
 
 import os
-#os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 import numpy as np
 from datetime import datetime
@@ -98,9 +98,9 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
     raster_settings_soft = RasterizationSettings(
         image_size=128, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
-        faces_per_pixel=100, 
+        faces_per_pixel=50,
         #max_faces_per_bin=10000,
-        perspective_correct=True
+        perspective_correct=False
     )
     alpha = 1.
     
@@ -147,7 +147,7 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=12, 
         #max_faces_per_bin=1000,
-        perspective_correct=True
+        perspective_correct=False
     )
     alpha = 1.
     
@@ -234,14 +234,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         "sofa": "04256520",
         "rifle": "04090263",
         "lamp":"03636649" }
-        dic_categories = {
-        "table":"04379243",
-        "car":"02958343",
-        "chair":"03001627" ,
-        "airplane":"02691156",
-        "sofa": "04256520",
-        "rifle": "04090263",
-        "lamp":"03636649" }
+        
         SHAPENET_PATH = shapenet_path
         available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
         model_id = np.random.randint(low = 0, high = len(available_models))
@@ -251,7 +244,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         device=device,
         load_textures=True,
         create_texture_atlas=True,
-        texture_atlas_size=4,
+        texture_atlas_size=16,
         texture_wrap="repeat",
         )
         
@@ -338,6 +331,14 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
 
 def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v1"):
     dic_categories = {
+        "table":"04379243",
+        "car":"02958343",
+        "chair":"03001627" ,
+        "airplane":"02691156",
+        "sofa": "04256520",
+        "rifle": "04090263",
+        "lamp":"03636649" }
+    dic_categories2 = {
     "04379243": "table",
     "02958343": "car",
     "03001627": "chair",
@@ -348,26 +349,46 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     nmr_classes = [
     '03001627', '02691156', '02828884', '02933112', '02958343', '03211117', '03636649', '03691459', '04090263',
     '04256520', '04379243', '04401088', '04530566']
+    # SHAPENET_PATH = shapenet_path
+    
+    # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
+    
+    # shapenet_model = shapenet_dataset[0]
+    # print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
+    # print("This model has model id " + shapenet_model["model_id"] + ".")
+    # model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
+    # model_textures = TexturesAtlas(model_textures[None]).to(device)
+    # target_mesh = Meshes(
+    #     verts=[model_verts.to(device)],   
+    #     faces=[model_faces.to(device)],
+    #     textures=model_textures
+    # )
     SHAPENET_PATH = shapenet_path
-    
-    shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
-    
-    shapenet_model = shapenet_dataset[0]
-    print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
-    print("This model has model id " + shapenet_model["model_id"] + ".")
-    model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
-    model_textures = TexturesAtlas(model_textures[None]).to(device)
-    target_mesh = Meshes(
-        verts=[model_verts.to(device)],   
-        faces=[model_faces.to(device)],
-        textures=model_textures
+    available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
+    model_id = np.random.randint(low = 0, high = len(available_models))
+    print("model id: ", available_models[model_id])
+    verts, faces, aux = load_obj(
+    SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
+    device=device,
+    load_textures=True,
+    create_texture_atlas=True,
+    texture_atlas_size=64,
+    texture_wrap="repeat",
     )
-    verts = target_mesh.verts_packed()
+    
+    atlas = aux.texture_atlas
+    mesh = Meshes(
+        verts=[verts],
+        faces=[faces.verts_idx],
+        textures=TexturesAtlas(atlas=[atlas]),
+    )
+    
+    verts = mesh.verts_packed()
     N = verts.shape[0]
     center = verts.mean(0)
     scale = max((verts - center).abs().max(0)[0])
-    target_mesh.offset_verts_(-center.expand(N, 3))
-    target_mesh.scale_verts_((1.0 / float(scale)))
+    mesh.offset_verts_(-center.expand(N, 3))
+    mesh.scale_verts_((1.0 / float(scale)))
     
     num_views = 1
     
@@ -377,7 +398,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
     
     #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
-    R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
+    R, T = look_at_view_transform(dist=1.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
@@ -386,9 +407,10 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
                                       T=T[None, 0, ...]) 
     
     raster_settings = RasterizationSettings(
-        image_size=64, 
+        image_size=256, 
         blur_radius=0.,
-        faces_per_pixel=1, 
+        faces_per_pixel=1,
+        max_faces_per_bin=50000
     )
     
     blend_settings = BlendParams(background_color = (1.,1.,1.))
@@ -415,7 +437,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     )
     
     
-    target_meshes = target_mesh.extend(num_views)
+    target_meshes = mesh.extend(num_views)
     
     
     target_images = renderer(target_meshes, cameras=cameras[0], lights=lights)
@@ -427,6 +449,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
 
 
 def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
+    torch.autograd.set_detect_anomaly(True)
     losses = {"rgb": {"weight": 1.0, "values": []},
               "angle_error":{"values":[]}
             }
@@ -483,7 +506,9 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg and i>200 and i%50==0:
-          sigma,gamma,_ = diff_renderer.shader.get_smoothing()
+          sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
+          grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
+          sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
           blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
           nb_samples = diff_renderer.shader.get_nb_samples()
           diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma

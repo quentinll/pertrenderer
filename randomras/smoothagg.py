@@ -39,23 +39,30 @@ class randomArgmax(Function):
         _, indices = torch.max(z, dim =-1, keepdim=True)
         vr_var = torch.zeros(z.size(), device = device)
         vr_var.scatter_(-1, indices, 1) #used during backward to reduce variance of gradient estimator
-        ctx.save_for_backward(weights,noise,torch.tensor(noise_intensity),vr_var,noise_type)
+        ctx.save_for_backward(weights,noise,noise_intensity,vr_var,noise_type)
         weight = weights.mean(dim = 0)
         return weight
     
     @staticmethod
     def backward(ctx, grad_l):
         grad_z = None
+        grad_gamma= None
         weights, noise, noise_intensity,vr_var, noise_type = ctx.saved_tensors
         noise_dict ={"gaussian": torch.tensor(0),"gumbel":torch.tensor(1),"cauchy":torch.tensor(2), "uniform": torch.tensor(3)}
         if noise_type == noise_dict["gaussian"]:
           grad_z = torch.matmul(grad_l.repeat(noise.size()[0],1,1,1,1).unsqueeze(-2),weights.unsqueeze(-1)-vr_var.unsqueeze(0).repeat(weights.size()[0],1,1,1,1).unsqueeze(-1))
           grad_z = torch.matmul(grad_z,noise.unsqueeze(-2))/noise_intensity
           grad_z = grad_z.squeeze(-2)
+          grad_gamma = weights*(torch.square(torch.norm(noise,dim=-1,keepdim=True))- 1/noise_intensity)
+          grad_gamma = grad_l*grad_gamma
+          grad_gamma = grad_gamma.sum(dim=(1,2,3,4))
         elif noise_type == noise_dict["cauchy"]:
           grad_z = torch.matmul(grad_l.repeat(noise.size()[0],1,1,1,1).unsqueeze(-2),weights.unsqueeze(-1)-vr_var.unsqueeze(0).repeat(weights.size()[0],1,1,1,1).unsqueeze(-1))
           grad_z = torch.matmul(grad_z,(2*noise/(1.+torch.square(noise))).unsqueeze(-2))/noise_intensity #need to replace with grad of density
           grad_z = grad_z.squeeze(-2)
+          grad_gamma = weights*(torch.matmul((2*noise/(1.+torch.square(noise))).unsqueeze(-2),noise.unsqueeze(-1)).squeeze(-1)- 1/noise_intensity)
+          grad_gamma = grad_l*grad_gamma
+          grad_gamma = grad_gamma.sum(dim=(1,2,3,4))
         elif noise_type == noise_dict["uniform"]:
             print("noise_type not implemented")
         elif noise_type == noise_dict["gumbel"]:
@@ -63,7 +70,8 @@ class randomArgmax(Function):
         else:
             print("noise_type not implemented")
         grad_z = grad_z.mean(dim=0)
-        return grad_z, None, None, None, None
+        grad_gamma = grad_gamma.mean(dim=0)
+        return grad_z, None, grad_gamma, None, None
 
 class SmoothAggBase(Module):
     
@@ -72,14 +80,14 @@ class SmoothAggBase(Module):
                  alpha,
                  eps,
                  nb_samples=1):
-        self.gamma = gamma
-        self.alpha = alpha
+        self.gamma = torch.tensor(gamma,requires_grad= True)
+        self.alpha = torch.tensor(alpha,requires_grad=True)
         self.nb_samples = nb_samples
         self.eps = eps # Weight for background color
     
     def update_smoothing(self, gamma = 4e-2, alpha = 1.):
-        self.gamma = gamma
-        self.alpha = alpha
+        self.gamma = torch.tensor(gamma,requires_grad= True)
+        self.alpha = torch.tensor(alpha,requires_grad=True)
         
     def update_nb_samples(self, nb_samples):
         self.nb_samples = nb_samples
@@ -98,7 +106,7 @@ class SoftAgg(SmoothAggBase):
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
         #prob_map.register_hook(lambda x: print("prob_map grad",torch.max(x),x[0,0:3,0:3,0:3]))
         #z_map = ((self.gamma/self.alpha)*torch.log(prob_map)+ z_inv- z_inv_max)
-        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map)+ z_inv- z_inv_max)
+        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv- z_inv_max)
         #print(z_map.size())
         #print(z_map[0,0:3,0:3,0:3])
         #z_map.register_hook(lambda x: print("zmap2 grad",torch.max(x)))

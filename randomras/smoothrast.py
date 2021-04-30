@@ -34,36 +34,42 @@ class randomHeaviside(Function):
       maps = distances + noise_intensity*noise
       maps = torch.heaviside(maps, values = torch.ones(maps.size(), device=device))
       vr_var = torch.heaviside(distances, values = torch.ones(distances.size(), device=device)) #used during backward to reduce variance of gradient estimator
-      ctx.save_for_backward(maps,noise,torch.tensor(noise_intensity),vr_var,noise_type)
+      ctx.save_for_backward(maps,noise,noise_intensity,vr_var,noise_type)
       map = maps.mean(dim=0)
       return map
     
     @staticmethod
     def backward(ctx, grad_l):
-      grad_dist = None
-      maps, noise, noise_intensity,vr_var, noise_type = ctx.saved_tensors
-      noise_dict ={"gaussian": torch.tensor(0), "cauchy": torch.tensor(1), "logistic": torch.tensor(2) }
-      if noise_type == noise_dict["gaussian"]:
-        grad_maps = (maps - vr_var.unsqueeze(0).repeat(maps.size()[0],1,1,1,1)) * noise/noise_intensity
-      elif noise_type == noise_dict["cauchy"]:
-        grad_maps = (maps - vr_var.unsqueeze(0).repeat(maps.size()[0],1,1,1,1)) * ((2*noise)/(1+torch.square(noise)))/noise_intensity
-      else:
-        print("noise_type not implemented")
-      grad_maps = grad_maps.mean(dim=0)
-      if ctx.needs_input_grad[0]:
-          grad_dist = grad_maps*grad_l
-      return grad_dist, None, None, None
+        grad_dist = None
+        grad_sigma = None
+        maps, noise, noise_intensity,vr_var, noise_type = ctx.saved_tensors
+        noise_dict ={"gaussian": torch.tensor(0), "cauchy": torch.tensor(1), "logistic": torch.tensor(2) }
+        if noise_type == noise_dict["gaussian"]:
+          grad_maps = (maps - vr_var.unsqueeze(0).repeat(maps.size()[0],1,1,1,1)) * noise/noise_intensity
+          grad_sigma = maps*(torch.square(noise) - 1./noise_intensity)
+        elif noise_type == noise_dict["cauchy"]:
+          grad_maps = (maps - vr_var.unsqueeze(0).repeat(maps.size()[0],1,1,1,1)) * ((2*noise)/(1+torch.square(noise)))/noise_intensity
+          grad_sigma = maps*(noise*((2*noise)/(1+torch.square(noise))) - 1./noise_intensity)
+        else:
+          print("noise_type not implemented")
+        grad_maps = grad_maps.mean(dim=0)
+        grad_sigma = grad_sigma.mean(dim=0)
+        if ctx.needs_input_grad[0]:
+            grad_dist = grad_maps*grad_l
+        if ctx.needs_input_grad[2]:
+            grad_sigma = torch.sum(grad_maps*grad_l)
+        return grad_dist, None, grad_sigma, None
 
 
 class SmoothRastBase(Module):
     
     def __init__(self,
                  sigma=2e-4):
-        self.sigma = sigma
+        self.sigma = torch.tensor(sigma, requires_grad= True)
         self.nb_samples = 1
         
     def update_smoothing(self, sigma):
-        self.sigma = sigma
+        self.sigma = torch.tensor(sigma, requires_grad= True)
         
     def update_nb_samples(self, nb_samples):
         self.nb_samples = nb_samples

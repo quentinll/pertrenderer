@@ -57,6 +57,9 @@ def smooth_rgb_blend(
     
     #aggregation
     #fragments.zbuf.register_hook(lambda x: print("z_buf grad",torch.max(x)))
+    # smoothagg.alpha.register_hook(lambda x: print("alpha grad",torch.max(x)))
+    # smoothagg.gamma.register_hook(lambda x: print("gamma grad",torch.max(x)))
+    # smoothrast.sigma.register_hook(lambda x: print("sigma grad",torch.max(x)))
     randomax = smoothagg.aggregate(fragments.zbuf,zfar,znear,prob_map,mask)
     #randomax.register_hook(lambda x: print("aggmap grad",torch.max(x)))
     wz,wb = randomax[...,:-1],randomax[...,-1:]
