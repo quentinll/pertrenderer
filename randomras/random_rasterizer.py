@@ -36,7 +36,7 @@ from .smoothagg import SoftAgg
 
 def smooth_rgb_blend(
     colors, fragments, smoothrast, smoothagg, blend_params, znear: float = 1.0, zfar: float = 100) -> torch.Tensor:
-
+    torch.autograd.set_detect_anomaly(True)
     N, H, W, K = fragments.pix_to_face.shape
     device = fragments.pix_to_face.device
     pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=colors.device)

@@ -106,7 +106,9 @@ class ArctanRast(SmoothRastBase):
         self.nb_samples = nb_samples
     
     def rasterize(self,dists):
-        prob_map= torch.arctan(-dists/self.sigma)/np.pi + .5
+        randomheavi = randomHeaviside().apply
+        prob_map = randomheavi(-dists, self.nb_samples, self.sigma,"cauchy")
+        #prob_map= torch.arctan(-dists/self.sigma)/np.pi + .5
         return prob_map
     
 class AffineRast(SmoothRastBase):

@@ -240,7 +240,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         model_id = np.random.randint(low = 0, high = len(available_models))
         print("model id: ", available_models[model_id])
         verts, faces, aux = load_obj(
-        SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
+        SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj',
         device=device,
         load_textures=True,
         create_texture_atlas=True,
@@ -351,14 +351,14 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     '04256520', '04379243', '04401088', '04530566']
     # SHAPENET_PATH = shapenet_path
     
-    # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
+    # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True, texture_resolution=4)
     
     # shapenet_model = shapenet_dataset[0]
     # print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
     # print("This model has model id " + shapenet_model["model_id"] + ".")
     # model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
     # model_textures = TexturesAtlas(model_textures[None]).to(device)
-    # target_mesh = Meshes(
+    # mesh = Meshes(
     #     verts=[model_verts.to(device)],   
     #     faces=[model_faces.to(device)],
     #     textures=model_textures
@@ -368,20 +368,30 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     model_id = np.random.randint(low = 0, high = len(available_models))
     print("model id: ", available_models[model_id])
     verts, faces, aux = load_obj(
-    SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
+    #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',    
+    SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj',
     device=device,
     load_textures=True,
     create_texture_atlas=True,
-    texture_atlas_size=64,
+    texture_atlas_size=16,
     texture_wrap="repeat",
     )
     
     atlas = aux.texture_atlas
+    #print(atlas.size(), faces.verts_idx.size(), verts.size(),aux.materials_color, aux.)
     mesh = Meshes(
         verts=[verts],
         faces=[faces.verts_idx],
         textures=TexturesAtlas(atlas=[atlas]),
     )
+    #####
+    mesh = load_objs_as_meshes(
+        [SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj'],
+        device=device,
+        load_textures=True,
+        create_texture_atlas = True
+        )
+    #####
     
     verts = mesh.verts_packed()
     N = verts.shape[0]
@@ -440,6 +450,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     target_meshes = mesh.extend(num_views)
     
     
+    
     target_images = renderer(target_meshes, cameras=cameras[0], lights=lights)
     target_sil = silhouette_renderer(target_meshes,cameras=cameras[0], lights = lights)
     #print(target_images.size())
@@ -449,7 +460,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
 
 
 def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
-    torch.autograd.set_detect_anomaly(True)
+    
     losses = {"rgb": {"weight": 1.0, "values": []},
               "angle_error":{"values":[]}
             }

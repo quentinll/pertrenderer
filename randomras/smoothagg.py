@@ -131,7 +131,7 @@ class GaussianAgg(SmoothAggBase):
         device =zbuf.device
         z_inv = (zfar - zbuf) / (zfar - znear) * mask
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
-        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map)+ z_inv-z_inv_max)
+        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv-z_inv_max)
         z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max ),dim=-1)
         randomarg = randomArgmax.apply
         randomax = randomarg(z_map, self.nb_samples, self.gamma, "gaussian", self.fixed_noise)
@@ -156,7 +156,7 @@ class CauchyAgg(SmoothAggBase):
         #z_map = ((self.gamma/self.alpha)*torch.log(1e-12+prob_map)+ z_inv) # substract z_inv_max ?
         #z_map = ((self.gamma/self.alpha)*torch.log(prob_map.clamp(min=1e-12))+ z_inv-z_inv_max) # substract z_inv_max ? add 1e-12 to prob map ? 
         #prob_map.register_hook(lambda x: print("probmap grad",torch.max(x),x[0,0:3,0:3,0:3]))
-        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map)+ z_inv-z_inv_max)
+        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv-z_inv_max)
         #add background component with inverse depth of eps
         #print(z_map.size())
         #print(z_map[0,0:3,0:3,0:3])
