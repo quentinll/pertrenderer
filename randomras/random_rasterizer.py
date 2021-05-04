@@ -36,7 +36,7 @@ from .smoothagg import SoftAgg
 
 def smooth_rgb_blend(
     colors, fragments, smoothrast, smoothagg, blend_params, znear: float = 1.0, zfar: float = 100) -> torch.Tensor:
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
     N, H, W, K = fragments.pix_to_face.shape
     device = fragments.pix_to_face.device
     pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=colors.device)
@@ -60,6 +60,7 @@ def smooth_rgb_blend(
     # smoothagg.alpha.register_hook(lambda x: print("alpha grad",torch.max(x)))
     # smoothagg.gamma.register_hook(lambda x: print("gamma grad",torch.max(x)))
     # smoothrast.sigma.register_hook(lambda x: print("sigma grad",torch.max(x)))
+    #print("zfar", zfar.size(), "znear", znear.size())
     randomax = smoothagg.aggregate(fragments.zbuf,zfar,znear,prob_map,mask)
     #randomax.register_hook(lambda x: print("aggmap grad",torch.max(x)))
     wz,wb = randomax[...,:-1],randomax[...,-1:]
@@ -156,21 +157,25 @@ class RandomSimpleShader(nn.Module):
         smoothagg=SoftAgg(),
         blend_params=None
     ):
-        super().__init__()
+        super(RandomSimpleShader,self).__init__()
         self.lights = lights if lights is not None else PointLights(device=device)
         self.materials = (
             materials if materials is not None else Materials(device=device)
         )
-        self.cameras = cameras
+        if cameras is not None:
+            self.cameras = cameras
+        else:
+            R, T = look_at_view_transform(dist=2.7, elev=torch.zeros((1)), azim=torch.zeros((1)))
+            self.cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
         self.blend_params = blend_params if blend_params is not None else BlendParams()
         self.smoothrast = smoothrast
         self.smoothagg = smoothagg
 
     def to(self, device):
         # Manually move to device modules which are not subclasses of nn.Module
-        self.cameras = self.cameras.to(device)
+        self.cameras = None if self.cameras is None else self.cameras.to(device)
         self.materials = self.materials.to(device)
-        self.lights = self.lights.to(device)
+        self.lights = None if self.lights is None else self.lights.to(device)
 
     def forward(self, fragments, meshes, **kwargs) -> torch.Tensor:
         cameras = kwargs.get("cameras", self.cameras)
@@ -181,8 +186,10 @@ class RandomSimpleShader(nn.Module):
         #meshes.verts_padded().register_hook(lambda x: print("mesh grad", torch.max(x)))
         texels = meshes.sample_textures(fragments)
         blend_params = kwargs.get("blend_params", self.blend_params)
-        znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))
-        zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))
+        #znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))
+        znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))[:,None,None,None]
+        #zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))
+        zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))[:,None,None,None]
         images = smooth_rgb_blend(
             texels, fragments, self.smoothrast, self.smoothagg, blend_params, znear=znear, zfar=zfar
         )

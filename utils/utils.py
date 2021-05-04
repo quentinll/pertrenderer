@@ -289,7 +289,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
-                                             T=T[None, i, ...]) for i in range(num_views)]
+                                             T=T[None, i, ...],fov=60) for i in range(num_views)]
     camera = OpenGLPerspectiveCameras(device=device, R=R[None, 0, ...], 
                                       T=T[None, 0, ...]) 
     
@@ -412,9 +412,9 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
-                                             T=T[None, i, ...]) for i in range(num_views)]
+                                             T=T[None, i, ...],fov=60) for i in range(num_views)]
     camera = OpenGLPerspectiveCameras(device=device, R=R[None, 0, ...], 
-                                      T=T[None, 0, ...]) 
+                                      T=T[None, 0, ...],fov=60) 
     
     raster_settings = RasterizationSettings(
         image_size=256, 

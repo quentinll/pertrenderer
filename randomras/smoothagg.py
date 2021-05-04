@@ -80,6 +80,7 @@ class SmoothAggBase(Module):
                  alpha,
                  eps,
                  nb_samples=1):
+        super(SmoothAggBase,self).__init__()
         self.gamma = torch.tensor(gamma,requires_grad= True)
         self.alpha = torch.tensor(alpha,requires_grad=True)
         self.nb_samples = nb_samples
@@ -98,10 +99,11 @@ class SoftAgg(SmoothAggBase):
                  gamma = 4e-2,
                  alpha = 1.,
                  eps= 1e-10):
-        super().__init__(gamma,alpha,eps)
+        super(SoftAgg,self).__init__(gamma,alpha,eps)
         
     def aggregate(self, zbuf,zfar,znear,prob_map,mask):
         device =zbuf.device
+        #print(zfar.size(), zbuf.size(), znear.size(), mask.size())
         z_inv = (zfar - zbuf) / (zfar - znear) * mask
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
         #prob_map.register_hook(lambda x: print("prob_map grad",torch.max(x),x[0,0:3,0:3,0:3]))
@@ -124,7 +126,7 @@ class GaussianAgg(SmoothAggBase):
                  alpha = 1.,
                  eps= 1e-10,
                  fixed_noise=False):
-        super().__init__(gamma,alpha,eps,nb_samples)
+        super(GaussianAgg,self).__init__(gamma,alpha,eps,nb_samples)
         self.fixed_noise = fixed_noise
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):
@@ -146,7 +148,7 @@ class CauchyAgg(SmoothAggBase):
                  alpha = 1.,
                  eps = 1e-10,
                  fixed_noise=False):
-        super().__init__(gamma,alpha,eps,nb_samples)
+        super(CauchyAgg,self).__init__(gamma,alpha,eps,nb_samples)
         self.fixed_noise = fixed_noise
         
     def aggregate(self,zbuf,zfar,znear,prob_map,mask):

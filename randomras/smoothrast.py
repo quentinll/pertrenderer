@@ -65,6 +65,7 @@ class SmoothRastBase(Module):
     
     def __init__(self,
                  sigma=2e-4):
+        super(SmoothRastBase,self).__init__()
         self.sigma = torch.tensor(sigma, requires_grad= True)
         self.nb_samples = 1
         
@@ -74,12 +75,12 @@ class SmoothRastBase(Module):
     def update_nb_samples(self, nb_samples):
         self.nb_samples = nb_samples
     
-
+    
 class SoftRast(SmoothRastBase):
     
     def __init__(self,
                  sigma=2e-4):
-        super().__init__(sigma)
+        super(SoftRast,self).__init__(sigma)
     
     def rasterize(self,dists):
         prob_map = torch.sigmoid(-dists/self.sigma)
@@ -90,7 +91,7 @@ class GaussianRast(SmoothRastBase):
     def __init__(self,
                  nb_samples=16,
                  sigma= 2e-4):
-        super().__init__(sigma)
+        super(GaussianRast,self).__init__(sigma)
         self.nb_samples = nb_samples
     
     def rasterize(self,dists):
@@ -102,7 +103,7 @@ class ArctanRast(SmoothRastBase):
     def __init__(self,
                  nb_samples=16,
                  sigma= 2e-4):
-        super().__init__(sigma)
+        super(ArctanRast,self).__init__(sigma)
         self.nb_samples = nb_samples
     
     def rasterize(self,dists):
