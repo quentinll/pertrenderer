@@ -108,13 +108,17 @@ class SoftAgg(SmoothAggBase):
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
         #prob_map.register_hook(lambda x: print("prob_map grad",torch.max(x),x[0,0:3,0:3,0:3]))
         #z_map = ((self.gamma/self.alpha)*torch.log(prob_map)+ z_inv- z_inv_max)
-        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv- z_inv_max)
+        log_prob = log_corrected.apply(prob_map)
+        gal = self.gamma/self.alpha
+        #gal.register_hook(lambda x: print("gal grad",torch.max(x)))
+        z_map = (prod_corrected.apply(gal,log_prob)+ z_inv-z_inv_max)
+        #z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv- z_inv_max)
         #print(z_map.size())
         #print(z_map[0,0:3,0:3,0:3])
         #z_map.register_hook(lambda x: print("zmap2 grad",torch.max(x)))
         z_map =torch.cat((z_map,(torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps -z_inv_max)),dim=-1)    
         #z_map.register_hook(lambda x: print("zmap3 grad",torch.max(x)))
-        weights = torch.softmax(z_map/self.gamma,dim=-1)
+        weights = torch.softmax(prod_corrected.apply(1./self.gamma,z_map),dim=-1)
         return weights
     
     
@@ -133,7 +137,9 @@ class GaussianAgg(SmoothAggBase):
         device =zbuf.device
         z_inv = (zfar - zbuf) / (zfar - znear) * mask
         z_inv_max = torch.max(z_inv, dim=-1).values[..., None].clamp(min=self.eps)
-        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv-z_inv_max)
+        #z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv-z_inv_max)
+        log_prob = log_corrected.apply(prob_map)
+        z_map = (prod_corrected.apply(self.gamma/self.alpha,log_prob)+ z_inv-z_inv_max)
         z_map =torch.cat((z_map,torch.ones((z_map.size()[0],z_map.size()[1],z_map.size()[2],1),device=device)*self.eps-z_inv_max ),dim=-1)
         randomarg = randomArgmax.apply
         randomax = randomarg(z_map, self.nb_samples, self.gamma, "gaussian", self.fixed_noise)
@@ -158,7 +164,18 @@ class CauchyAgg(SmoothAggBase):
         #z_map = ((self.gamma/self.alpha)*torch.log(1e-12+prob_map)+ z_inv) # substract z_inv_max ?
         #z_map = ((self.gamma/self.alpha)*torch.log(prob_map.clamp(min=1e-12))+ z_inv-z_inv_max) # substract z_inv_max ? add 1e-12 to prob map ? 
         #prob_map.register_hook(lambda x: print("probmap grad",torch.max(x),x[0,0:3,0:3,0:3]))
-        z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv-z_inv_max)
+        ####
+        #gal = self.gamma/self.alpha
+        #gal.register_hook(lambda x: print("gal grad",torch.max(x)))
+        log_prob = log_corrected.apply(prob_map)
+        #log_prob.register_hook(lambda x: print("log_prob grad",torch.max(x)))
+        #mask_is_finite = torch.cat((torch.isfinite(log_prob),torch.ones((log_prob.size()[0],log_prob.size()[1],log_prob.size()[2],1),device=device, dtype=torch.bool)),dim = -1)
+        #print("mask size",mask_is_finite.size())
+        
+        #z_map = (gal*log_prob.clamp(min=-1e12)+ z_inv-z_inv_max)
+        z_map = (prod_corrected.apply(self.gamma/self.alpha,log_prob)+ z_inv-z_inv_max)
+        ####
+        #z_map = ((self.gamma/self.alpha)*log_corrected.apply(prob_map).clamp(min=-1e12)+ z_inv-z_inv_max)
         #add background component with inverse depth of eps
         #print(z_map.size())
         #print(z_map[0,0:3,0:3,0:3])
@@ -168,6 +185,7 @@ class CauchyAgg(SmoothAggBase):
         #z_map.register_hook(lambda x: print("zmap3 grad",torch.max(x)))
         randomarg = randomArgmax.apply
         randomax = randomarg(z_map, self.nb_samples, self.gamma, "cauchy", self.fixed_noise)
+        #print("randomax", randomax.size())
         return randomax
     
 class UniformAgg(SmoothAggBase):
@@ -233,4 +251,32 @@ class log_corrected(Function):
             grad_log = grad_log*grad_l
             #grad_log = torch.where(torch.isnan(grad_log), torch.zeros_like(grad_log), grad_log)
         return grad_log
+    
+
+class prod_corrected(Function):    
+    """
+    product whose backward pass returns 0 instead of nan when x is null and y is infty.
+    """
+    
+    @staticmethod
+    def forward(ctx,x,y):
+        ctx.save_for_backward(x,y)
+        return x*y
+    
+    @staticmethod
+    def backward(ctx,grad_l):
+        grad_prod_x = None
+        grad_prod_y = None
+        (x,y) = ctx.saved_tensors
+        if ctx.needs_input_grad[0]:
+            y = torch.where(torch.isinf(y), torch.zeros_like(y), y)
+            grad_prod_x = y*grad_l
+            grad_prod_x = grad_prod_x.nansum()
+            #print("grad_x", grad_prod_x)
+        if ctx.needs_input_grad[1]:
+            device = x.device
+            grad_prod_y = x*grad_l
+            grad_prod_y = torch.where(torch.isnan(grad_prod_y), torch.zeros_like(grad_prod_y), grad_prod_y)
+        return grad_prod_x, grad_prod_y
+    
     
