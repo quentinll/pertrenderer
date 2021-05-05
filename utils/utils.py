@@ -233,14 +233,19 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         "airplane":"02691156",
         "sofa": "04256520",
         "rifle": "04090263",
-        "lamp":"03636649" }
+        "lamp":"03636649",
+        "mug":"03797390"}
+        model_per_category={
+            "mug":"bea77759a3e5f9037ae0031c221d81a4"
+            }
         
         SHAPENET_PATH = shapenet_path
         available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
         model_id = np.random.randint(low = 0, high = len(available_models))
         print("model id: ", available_models[model_id])
         verts, faces, aux = load_obj(
-        SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj',
+        #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj',
+        SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.obj',
         device=device,
         load_textures=True,
         create_texture_atlas=True,
@@ -337,7 +342,8 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
         "airplane":"02691156",
         "sofa": "04256520",
         "rifle": "04090263",
-        "lamp":"03636649" }
+        "lamp":"03636649" ,
+        "bottle": "02876657"}
     dic_categories2 = {
     "04379243": "table",
     "02958343": "car",
@@ -345,7 +351,9 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     "02691156": "airplane",
     "04256520": "sofa",
     "04090263": "rifle",
-    "03636649": "lamp" }
+    "03636649": "lamp",
+    "02876657": "bottle"
+    }
     nmr_classes = [
     '03001627', '02691156', '02828884', '02933112', '02958343', '03211117', '03636649', '03691459', '04090263',
     '04256520', '04379243', '04401088', '04530566']
@@ -466,7 +474,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
             }
     gradient_values = []
     # Plot period for the losses
-    plot_period = max(Niter/50,1)
+    plot_period = max(int(Niter/50),1)
     gradient_values = []
     loop = tqdm(range(Niter))
     images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
@@ -509,6 +517,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           best_loss = loss_rgb.detach().cpu().numpy()
           best_log_rot = log_rot.clone()
       gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
+      print(log_rot.grad)
       if gradient_values[-1]> 1000.: #clipping gradients
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
@@ -517,10 +526,10 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #continue
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
-      if 1 or adapt_reg and i>200 and i%50==0:
+      if adapt_reg and i>200 and i%50==0:
           sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
           grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
-          print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
+          #print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
           v_sigma, v_gamma, v_alpha =.9*v_sigma.detach().clone() + .1*grad_sigma.detach().clone(), .9*v_gamma.detach().clone() + .1*grad_gamma.detach().clone(), .9*v_alpha.detach().clone() + .1*grad_alpha.detach().clone()
           sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
           blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
