@@ -46,10 +46,10 @@ class randomHeaviside(Function):
         noise_dict ={"gaussian": torch.tensor(0), "cauchy": torch.tensor(1), "logistic": torch.tensor(2) }
         if noise_type == noise_dict["gaussian"]:
           grad_maps = (maps - vr_var.unsqueeze(0).repeat(maps.size()[0],1,1,1,1)) * noise/noise_intensity
-          grad_sigma = maps*(torch.square(noise) - 1./noise_intensity)
+          grad_sigma = maps*(torch.square(noise) - 1.)/noise_intensity
         elif noise_type == noise_dict["cauchy"]:
           grad_maps = (maps - vr_var.unsqueeze(0).repeat(maps.size()[0],1,1,1,1)) * ((2*noise)/(1+torch.square(noise)))/noise_intensity
-          grad_sigma = maps*(noise*((2*noise)/(1+torch.square(noise))) - 1./noise_intensity)
+          grad_sigma = maps*(noise*((2*noise)/(1+torch.square(noise))) - 1.)/noise_intensity
         else:
           print("noise_type not implemented")
         grad_maps = grad_maps.mean(dim=0)
