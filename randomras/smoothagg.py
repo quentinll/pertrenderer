@@ -72,7 +72,6 @@ class randomArgmax(Function):
         
         grad_z = grad_z.mean(dim=0)
         grad_gamma = grad_gamma.mean(dim=0)
-        print("noise intensity",noise_intensity, grad_gamma)
         return grad_z, None, grad_gamma, None, None
 
 class SmoothAggBase(Module):
