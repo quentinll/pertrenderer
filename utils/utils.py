@@ -525,15 +525,15 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #continue
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
-      if adapt_reg and i>200:
+      if adapt_reg and i>1:
           sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
           grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
           #print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
           v_sigma, v_gamma, v_alpha =.9*v_sigma.detach().clone() + .1*grad_sigma.detach().clone(), .9*v_gamma.detach().clone() + .1*grad_gamma.detach().clone(), .9*v_alpha.detach().clone() + .1*grad_alpha.detach().clone()
           sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
-          blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
+          blend_settings = BlendParams(sigma = sigma.detach().clone()/adapt_params[0],gamma = gamma.detach().clone()/adapt_params[1])
           nb_samples = diff_renderer.shader.get_nb_samples()
-          if v_gamma >0 and (i+1)%50==0 :
+          if v_gamma >0 and (i+1)%1==0 :
               if sigma> 5e-5 and gamma>5e-4:
                   diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
                   diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
