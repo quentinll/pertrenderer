@@ -525,7 +525,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #continue
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
-      if adapt_reg and i>200 and i%50==0 or 1:
+      if adapt_reg and i>200:
           sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
           grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
           #print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
@@ -533,11 +533,13 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
           blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
           nb_samples = diff_renderer.shader.get_nb_samples()
-          diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
-          diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
-          diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
-          lr = lr/1.5
-          optimizer = torch.optim.Adam([log_rot], lr=lr)
+          if v_gamma >0 and (i+1)%50==0 :
+              if sigma> 5e-5 and gamma>5e-4:
+                  diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
+                  diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
+                  diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
+                  lr = lr/1.5
+                  optimizer = torch.optim.Adam([log_rot], lr=lr)
     #fig = plt.figure(figsize=(13, 5))
     #ax = fig.gca()
     #ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
