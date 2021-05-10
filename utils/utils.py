@@ -525,10 +525,10 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #continue
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
-      if adapt_reg and i>200 or 1:
+      if adapt_reg and i>200:
           sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
           grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
-          print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
+          #print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
           v_sigma, v_gamma, v_alpha =.9*v_sigma.detach().clone() + .1*grad_sigma.detach().clone(), .9*v_gamma.detach().clone() + .1*grad_gamma.detach().clone(), .9*v_alpha.detach().clone() + .1*grad_alpha.detach().clone()
           sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
           blend_settings = BlendParams(sigma = sigma.detach().clone()/adapt_params[0],gamma = gamma.detach().clone()/adapt_params[1])
