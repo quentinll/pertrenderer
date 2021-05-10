@@ -53,14 +53,14 @@ class randomArgmax(Function):
           grad_z = torch.matmul(grad_l.repeat(noise.size()[0],1,1,1,1).unsqueeze(-2),weights.unsqueeze(-1)-vr_var.unsqueeze(0).repeat(weights.size()[0],1,1,1,1).unsqueeze(-1))
           grad_z = torch.matmul(grad_z,noise.unsqueeze(-2))/noise_intensity
           grad_z = grad_z.squeeze(-2)
-          grad_gamma = weights*(torch.square(torch.norm(noise,dim=-1,keepdim=True))- 1.)/noise_intensity
+          grad_gamma = (weights-vr_var.unsqueeze(0).repeat(weights.size()[0],1,1,1,1))*(torch.square(torch.norm(noise,dim=-1,keepdim=True))- 1.)/noise_intensity
           grad_gamma = grad_l*grad_gamma
           grad_gamma = grad_gamma.sum(dim=(1,2,3,4))
         elif noise_type == noise_dict["cauchy"]:
           grad_z = torch.matmul(grad_l.repeat(noise.size()[0],1,1,1,1).unsqueeze(-2),weights.unsqueeze(-1)-vr_var.unsqueeze(0).repeat(weights.size()[0],1,1,1,1).unsqueeze(-1))
           grad_z = torch.matmul(grad_z,(2*noise/(1.+torch.square(noise))).unsqueeze(-2))/noise_intensity #need to replace with grad of density
           grad_z = grad_z.squeeze(-2)
-          grad_gamma = weights*(torch.matmul((2*noise/(1.+torch.square(noise))).unsqueeze(-2),noise.unsqueeze(-1)).squeeze(-1)- 1.)/noise_intensity
+          grad_gamma = (weights-vr_var.unsqueeze(0).repeat(weights.size()[0],1,1,1,1))*(torch.matmul((2*noise/(1.+torch.square(noise))).unsqueeze(-2),noise.unsqueeze(-1)).squeeze(-1)- 1.)/noise_intensity
           grad_gamma = grad_l*grad_gamma
           grad_gamma = grad_gamma.sum(dim=(1,2,3,4))
         elif noise_type == noise_dict["uniform"]:
