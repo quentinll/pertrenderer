@@ -525,7 +525,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           #continue
           #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
-      if adapt_reg and i>200:
+      if adapt_reg and i>200 or 1:
           sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
           grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
           print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
