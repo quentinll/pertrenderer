@@ -89,7 +89,7 @@ class RandomPhongShader(nn.Module):
         smoothagg=SoftAgg(),
         blend_params=None
     ):
-        super().__init__()
+        super(RandomPhongShader,self).__init__()
         self.lights = lights if lights is not None else PointLights(device=device)
         self.materials = (
             materials if materials is not None else Materials(device=device)
@@ -124,10 +124,10 @@ class RandomPhongShader(nn.Module):
             cameras=cameras,
             materials=materials,
         )
-        znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))
-        zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))
+        znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))[:,None,None,None]
+        zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))[:,None,None,None]
         images = smooth_rgb_blend(
-            colors, fragments, blend_params, znear=znear, zfar=zfar, nb_samples = self.nb_samples, alpha = self.alpha, noise_type= self.noise_type
+            colors, fragments, self.smoothrast, self.smoothagg, blend_params, znear=znear, zfar=zfar
         )
         return images
     

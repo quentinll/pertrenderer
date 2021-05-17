@@ -99,7 +99,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         image_size=128, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=50,
-        #max_faces_per_bin=10000,
+        max_faces_per_bin=50000,
         perspective_correct=False
     )
     alpha = 1.
@@ -124,8 +124,8 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 cameras=camera, 
                 raster_settings=raster_settings_soft
             ),
-            #shader=RandomPhongShader(device=device,
-            shader=RandomSimpleShader(device=device,
+            shader=RandomPhongShader(device=device,
+            #shader=RandomSimpleShader(device=device,
                 cameras=camera,
                 lights=lights,
                 blend_params=blend_settings,
@@ -145,8 +145,8 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
     raster_settings_soft = RasterizationSettings(
         image_size=64, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
-        faces_per_pixel=12, 
-        #max_faces_per_bin=1000,
+        faces_per_pixel=50, 
+        max_faces_per_bin=50000,
         perspective_correct=False
     )
     alpha = 1.
@@ -234,9 +234,19 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         "sofa": "04256520",
         "rifle": "04090263",
         "lamp":"03636649",
-        "mug":"03797390"}
+        "mug":"03797390",
+        "microwave":"03761084",
+        "mailbox": "03710193",
+        "bus":"02924116",
+        "speaker":"03691459"
+        }
         model_per_category={
-            "mug":"bea77759a3e5f9037ae0031c221d81a4"
+            "mug":"bea77759a3e5f9037ae0031c221d81a4",
+            "airplane": "ffccda82ecc0d0f71740529c616cd4c7",#"fff513f407e00e85a9ced22d91ad7027"
+            "microwave": "c1851c910969d154df78375e5c76ea3d",
+            "mailbox": "10e1051cbe10626e30a706157956b491",
+            "bus": "7ad09b362de71bfaadcb6d6a1ff60276",
+            "speaker": "1d4bb07ac73996182339c28050e32573"
             }
         
         SHAPENET_PATH = shapenet_path
@@ -244,7 +254,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         model_id = np.random.randint(low = 0, high = len(available_models))
         print("model id: ", available_models[model_id])
         verts, faces, aux = load_obj(
-        #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj',
+        #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
         SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.obj',
         device=device,
         load_textures=True,
@@ -254,9 +264,11 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         )
         
         atlas = aux.texture_atlas
+        #verts_rgb = torch.ones_like(verts)[None]
         mesh = Meshes(
             verts=[verts],
             faces=[faces.verts_idx],
+            #textures = TexturesVertex(verts_rgb)
             textures=TexturesAtlas(atlas=[atlas]),
         )
         # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
@@ -284,13 +296,14 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     elev = torch.linspace(30, 240, num_views)
     azim = torch.linspace(120,150, num_views)
     
-    lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
+    lights = PointLights(device=device, location=[[0.0, 10.0, 10.0]])
     
     #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
     if category=="cube":
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     else:
-        R, T = look_at_view_transform(dist=2.7, elev=elev, azim=azim)
+        mesh.scale_verts_(2.5)
+        R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
@@ -301,7 +314,8 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     raster_settings = RasterizationSettings(
         image_size=128, 
         blur_radius=0.,
-        faces_per_pixel=1, 
+        faces_per_pixel=1,
+        max_faces_per_bin=100000
     )
     
     blend_settings = BlendParams(background_color = (0.,0.,0.))
@@ -312,7 +326,8 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
             raster_settings=raster_settings
         ),
         
-        shader=SimpleShader(
+        #shader=SimpleShader(
+        shader=HardPhongShader(
             device=device,
             blend_params= blend_settings
         )
