@@ -259,7 +259,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         device=device,
         load_textures=True,
         create_texture_atlas=True,
-        texture_atlas_size=16,
+        texture_atlas_size=4,
         texture_wrap="repeat",
         )
         
@@ -693,7 +693,7 @@ def compare_pose_opt(params_file):
     mean_errors = {}
     var_errors = {}
     mean_solved = {}
-    exp_setup = {"perturbation": pert_init_intensity, "Niter": Niter, "optimizer": optimizer,"N_benchmark": N_benchmark ,"adaptive_regularization": adapt_reg}
+    exp_setup = {"perturbation": pert_init_intensity, "Niter": Niter, "optimizer": optimizer,"N_benchmark": N_benchmark ,"adaptive_regularization": adapt_reg, "category":categories}
     for x in noise_type:
         mean_errors[x]= []
         var_errors[x] = []
