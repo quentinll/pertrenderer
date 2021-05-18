@@ -306,13 +306,13 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     elev = torch.linspace(30, 240, num_views)
     azim = torch.linspace(120,150, num_views)
     
-    lights = PointLights(device=device, location=[[0.0, 10.0, 10.0]])
+    lights = PointLights(device=device, location=[[0.0,2.0, -2.0]])
     
     #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
     if category=="cube":
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     else:
-        mesh.scale_verts_(2.5)
+        mesh.scale_verts_(3.0)
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
