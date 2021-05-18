@@ -69,7 +69,7 @@ from pytorch3d.datasets import (
 
 from pytorch3d.structures import Meshes
 from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
-from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj
+from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj, load_ply, IO
 
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg
 from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast
@@ -238,7 +238,10 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         "microwave":"03761084",
         "mailbox": "03710193",
         "bus":"02924116",
-        "speaker":"03691459"
+        "speaker":"03691459",
+        "display":"03211117",
+        "dishwasher": "03207941",
+        "bag": "02773838"
         }
         model_per_category={
             "mug":"bea77759a3e5f9037ae0031c221d81a4",
@@ -246,16 +249,21 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
             "microwave": "c1851c910969d154df78375e5c76ea3d",
             "mailbox": "10e1051cbe10626e30a706157956b491",
             "bus": "7ad09b362de71bfaadcb6d6a1ff60276",
-            "speaker": "1d4bb07ac73996182339c28050e32573"
+            "speaker": "1d4bb07ac73996182339c28050e32573",
+            "display": "4744bc26253dd076174f1b91e00d9f2d",
+            "dishwasher": "fb15942e4096d8f0263a7f81856f9708",
+            "bag": "a55b721ea5a29d7f639ff561fa3f5bac"
             }
         
         SHAPENET_PATH = shapenet_path
         available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
         model_id = np.random.randint(low = 0, high = len(available_models))
         print("model id: ", available_models[model_id])
+        #verts, faces = load_ply(
         verts, faces, aux = load_obj(
         #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
         SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.obj',
+        #SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.ply',
         device=device,
         load_textures=True,
         create_texture_atlas=True,
@@ -271,6 +279,8 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
             #textures = TexturesVertex(verts_rgb)
             textures=TexturesAtlas(atlas=[atlas]),
         )
+        #loader = IO()
+        #mesh = loader.load_mesh(SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.ply', True, device)
         # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
         # shapenet_model = shapenet_dataset[0]
         # print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
