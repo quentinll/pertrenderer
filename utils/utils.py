@@ -241,7 +241,9 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         "speaker":"03691459",
         "display":"03211117",
         "dishwasher": "03207941",
-        "bag": "02773838"
+        "bag": "02773838",
+        "lamp": "03636649",
+        "birdhouse": "02843684"
         }
         model_per_category={
             "mug":"bea77759a3e5f9037ae0031c221d81a4",
@@ -250,15 +252,17 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
             "mailbox": "10e1051cbe10626e30a706157956b491",
             "bus": "7ad09b362de71bfaadcb6d6a1ff60276",
             "speaker": "1d4bb07ac73996182339c28050e32573",
-            "display": "4744bc26253dd076174f1b91e00d9f2d",
+            "display": "2e6204b4aa7ba83fbd28395acf9af65e",#"4744bc26253dd076174f1b91e00d9f2d",
             "dishwasher": "fb15942e4096d8f0263a7f81856f9708",
-            "bag": "a55b721ea5a29d7f639ff561fa3f5bac"
+            "bag": "a55b721ea5a29d7f639ff561fa3f5bac",
+            "lamp": "4a868756ae6404a5c0bc57897eddf6f",#"a0a87d63af355b45615810b8eabca5b3"
+            "birdhouse": "7f53db3b31fe08283c2748dd7bf1793a"
             }
         
         SHAPENET_PATH = shapenet_path
         available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
         model_id = np.random.randint(low = 0, high = len(available_models))
-        print("model id: ", available_models[model_id])
+        print("model id: ", model_per_category[category])
         #verts, faces = load_ply(
         verts, faces, aux = load_obj(
         #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
@@ -312,7 +316,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     if category=="cube":
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     else:
-        mesh.scale_verts_(3.0)
+        mesh.scale_verts_(3.)
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
