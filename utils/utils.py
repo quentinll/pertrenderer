@@ -71,8 +71,8 @@ from pytorch3d.structures import Meshes
 from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
 from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj, load_ply, IO
 
-from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg
-from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast
+from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg, GaussianAgg_wovr
+from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast, GaussianRast_wovr
 
 if torch.cuda.is_available() and 1:
     device = torch.device("cuda:0")
@@ -112,6 +112,9 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         if noise_type[i] == "gaussian":
             random_rast = GaussianRast(sigma = sigma)
             random_agg = GaussianAgg(gamma = gamma, alpha = alpha,nb_samples=nb_samples)
+        if noise_type[i] == "gaussian_wovr":
+            random_rast = GaussianRast_wovr(sigma = sigma)
+            random_agg = GaussianAgg_wovr(gamma = gamma, alpha = alpha,nb_samples=nb_samples)
         if noise_type[i] == "uniform":
             random_rast = AffineRast(sigma=sigma)
             random_agg = HardAgg()
