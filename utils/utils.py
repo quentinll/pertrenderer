@@ -708,12 +708,16 @@ def compare_pose_opt(params_file):
     MC_samples = params_dic["MC_samples"] if not adapt_reg else [8]
     params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
     mean_errors = {}
+    init_errors = {}
+    final_errors = {}
     var_errors = {}
     mean_solved = {}
     exp_setup = {"perturbation": pert_init_intensity, "Niter": Niter, "optimizer": optimizer,"N_benchmark": N_benchmark ,"adaptive_regularization": adapt_reg, "category":categories}
     for x in noise_type:
         mean_errors[x]= []
         var_errors[x] = []
+        init_errors[x] = []
+        final_errors[x] = []
         mean_solved[x] = {1:[],2:[], 5:[], 10:[], 15:[], 20:[], 25: [], 35: [], 45:[] }
     test_problems = []
     meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location)    
@@ -728,8 +732,10 @@ def compare_pose_opt(params_file):
                     print(j*len(smoothing_list)*len(MC_samples)*len(adapt_params) + k*len(MC_samples)*len(adapt_params) +kk*len(adapt_params)+jj +1,'/',len(lr_list)*len(smoothing_list)*len(MC_samples)*len(adapt_params),'params')
                     (sigma,gamma) = smoothing
                     angle_errors = {}
+                    angle_errors_init = {}
                     for x in noise_type:
                         angle_errors[x]= []
+                        angle_errors_init[x]= []
                     #angle_errors = {"random_rasterizer":[], "softras":[]}
                     for i in range(N_benchmark):
                         print(i+1,'/', N_benchmark, 'test problem')
@@ -738,6 +744,7 @@ def compare_pose_opt(params_file):
                         _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
                         for l in range(len(noise_type)):
                             print(noise_type[l])
+                            angle_errors_init[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot_init), R_true).detach().cpu().item()*180./np.pi]
                             log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             angle_errors[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot), R_true).detach().cpu().item()*180./np.pi]
                             if angle_errors [noise_type[l]][-1] >10:
@@ -745,6 +752,8 @@ def compare_pose_opt(params_file):
                     for l in range(len(noise_type)):
                         mean_errors[noise_type[l]] += [sum(angle_errors[noise_type[l]])/len(angle_errors[noise_type[l]])]
                         var_errors[noise_type[l]] += [np.std(angle_errors[noise_type[l]])]
+                        init_errors[noise_type[l]] += [angle_errors_init[noise_type[l]]]
+                        final_errors[noise_type[l]] += [angle_errors[noise_type[l]]]
                         for thresh in mean_solved[noise_type[l]]:
                             mean_solved[noise_type[l]][thresh] += [sum([1 if angle <thresh else 0 for angle in angle_errors[noise_type[l]]])/len(angle_errors[noise_type[l]])]
                     params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
@@ -758,6 +767,10 @@ def compare_pose_opt(params_file):
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
     json.dump(mean_errors, file_res)
+    file_res = open(path_res/'angle_error_final.txt', 'w')
+    json.dump(final_errors, file_res)
+    file_res = open(path_res/'angle_error_init.txt', 'w')
+    json.dump(init_errors, file_res)
     file_res = open(path_res/'angle_std.txt', 'w')
     json.dump(var_errors, file_res)
     file_res = open(path_res/'solved_percentage.txt', 'w')
