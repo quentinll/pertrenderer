@@ -3,7 +3,7 @@
 """
 Created on Mon Jan 11 17:16:05 2021
 
-@author: quentin
+@author: 
 """
 import argparse
 
@@ -64,7 +64,7 @@ from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg, Gaussi
 from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast, GaussianRast_wovr
 
 
-DATASET_DIRECTORY = "../ShapeNetCore.v2"
+DATASET_DIRECTORY = str(Path().cwd().parents[1]/"SubsetShapenet/ShapeNetCore.v2")
 NUM_ITERATIONS = 100
 OPTIMIZER = "adam"
 LR_VALUES = [5e-3]
@@ -81,17 +81,17 @@ NUM_PROB = 100
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-eid', '--experiment-id', type=int, default=EXP_ID)
-parser.add_argument('-dd', '--dataset-directory', type=str, default=DATASET_DIRECTORY)
+parser.add_argument('-dd', '--dataset-directory', type=str, default=DATASET_DIRECTORY) #path to shapenet 
 parser.add_argument('-ni', '--num-iterations', type=int, default=NUM_ITERATIONS)
 parser.add_argument('-opt', '--optimizer', type=str, default=OPTIMIZER)
-parser.add_argument('-lr', '--lr-values', type=list, default=LR_VALUES)
-parser.add_argument('-sv', '--smoothing-values', type=list, default=SMOOTHING_VALUES)
-parser.add_argument('-sn', '--smoothing-noise', type=list, default=SMOOTHING_NOISE)
-parser.add_argument('-mc', '--mc-samples', type=list, default=MC_SAMPLES)
+parser.add_argument('-lr', '--lr-values', nargs='+', type=float, default=LR_VALUES)
+parser.add_argument('-sv', '--smoothing-values', nargs='+', type=tuple, default=SMOOTHING_VALUES)
+parser.add_argument('-sn', '--smoothing-noise', nargs='+', type=str, default=SMOOTHING_NOISE)
+parser.add_argument('-mc', '--mc-samples', nargs='+', type=list, default=MC_SAMPLES)
 parser.add_argument('-ar', '--adaptive-regularization', type=bool, default=ADAPTIVE_REGULARIZATION)
-parser.add_argument('-ap', '--adaptive-params', type=list, default=ADAPTIVE_PARAMS)
+parser.add_argument('-ap', '--adaptive-params', nargs='+', type=tuple, default=ADAPTIVE_PARAMS)
 parser.add_argument('-ip', '--initial-perturbation', type=float, default=INITIAL_PERTURBATION)
-parser.add_argument('-cat', '--categories', type=list, default=CATEGORIES)
+parser.add_argument('-cat', '--categories', nargs='+', type=str, default=CATEGORIES)
 parser.add_argument('-tsk', '--task', type=str, default=TASK)
 parser.add_argument('-np', '--num-prob', type=int, default=NUM_PROB)
 args = parser.parse_args()
@@ -152,7 +152,6 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 raster_settings=raster_settings_soft
             ),
             shader=RandomPhongShader(device=device,
-            #shader=RandomSimpleShader(device=device,
                 cameras=camera,
                 lights=lights,
                 blend_params=blend_settings,
@@ -207,7 +206,6 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
                 )
         )
         renderers+=[renderer_random]
-    #src_mesh = ico_sphere(4, device)
     verts, faces, _ = load_obj("data/sphere/sphere_642.obj")
     src_mesh = Meshes(verts=[verts], faces=[faces.verts_idx]).to(device=device)
     verts = src_mesh.verts_packed()
@@ -223,7 +221,7 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
 
 def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     if category=="cube":
-        datadir = "../data/rubiks"
+        datadir = "../data/objs/rubiks"
         obj_filename = os.path.join(datadir, "cube2.obj")
         fn = 'cube_p.npz'
         with np.load(f'{datadir}/{fn}') as f:
@@ -290,11 +288,8 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
         model_id = np.random.randint(low = 0, high = len(available_models))
         print("model id: ", model_per_category[category])
-        #verts, faces = load_ply(
         verts, faces, aux = load_obj(
-        #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',
         SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.obj',
-        #SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.ply',
         device=device,
         load_textures=True,
         create_texture_atlas=True,
@@ -303,27 +298,11 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
         )
         
         atlas = aux.texture_atlas
-        #verts_rgb = torch.ones_like(verts)[None]
         mesh = Meshes(
             verts=[verts],
             faces=[faces.verts_idx],
-            #textures = TexturesVertex(verts_rgb)
             textures=TexturesAtlas(atlas=[atlas]),
         )
-        #loader = IO()
-        #mesh = loader.load_mesh(SHAPENET_PATH+'/'+dic_categories[category]+'/'+model_per_category[category]+'/'+'models'+'/'+'model_normalized.ply', True, device)
-        # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True)
-        # shapenet_model = shapenet_dataset[0]
-        # print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
-        # print("This model has model id " + shapenet_model["model_id"] + ".")
-        # model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
-        # model_textures = TexturesAtlas(model_textures[None]).to(device)
-        # mesh = Meshes(
-        #     verts=[model_verts.to(device)],   
-        #     faces=[model_faces.to(device)],
-        #     textures=model_textures
-        # )
-      
     model_verts = mesh.verts_packed()
     N = model_verts.shape[0]
     center = model_verts.mean(0)
@@ -339,13 +318,11 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     
     lights = PointLights(device=device, location=[[0.0,2.0, -2.0]])
     
-    #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
     if category=="cube":
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
     else:
         mesh.scale_verts_(3.)
         R, T = look_at_view_transform(dist=6.7, elev=elev, azim=azim)
-    #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
                                              T=T[None, i, ...],fov=60) for i in range(num_views)]
@@ -379,11 +356,9 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     #     [-0.90048081,  0.23194659, -0.36787909],
     #     [-0.33718359,  0.16188823,  0.92741549]]], device= device)
     rotation_true = Rotate(R_true, device=device)
-    # rotate the mesh
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
     
     target_images = renderer(meshes_rotated, cameras=cameras[0], lights=lights)
-    #target_images = renderer(meshes, R=R, T=T, lights=lights)
     
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
     return meshes, cameras, lights, target_rgb, R_true
@@ -413,26 +388,11 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     nmr_classes = [
     '03001627', '02691156', '02828884', '02933112', '02958343', '03211117', '03636649', '03691459', '04090263',
     '04256520', '04379243', '04401088', '04530566']
-    # SHAPENET_PATH = shapenet_path
-    
-    # shapenet_dataset = ShapeNetCore(SHAPENET_PATH,synsets=[category],load_textures=True, texture_resolution=4)
-    
-    # shapenet_model = shapenet_dataset[0]
-    # print("This model belongs to the category " + shapenet_model["synset_id"] + ".")
-    # print("This model has model id " + shapenet_model["model_id"] + ".")
-    # model_verts, model_faces, model_textures = shapenet_model["verts"], shapenet_model["faces"], shapenet_model["textures"]
-    # model_textures = TexturesAtlas(model_textures[None]).to(device)
-    # mesh = Meshes(
-    #     verts=[model_verts.to(device)],   
-    #     faces=[model_faces.to(device)],
-    #     textures=model_textures
-    # )
     SHAPENET_PATH = shapenet_path
     available_models= os.listdir(SHAPENET_PATH+'/'+dic_categories[category])
     model_id = np.random.randint(low = 0, high = len(available_models))
     print("model id: ", available_models[model_id])
     verts, faces, aux = load_obj(
-    #SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'model.obj',    
     SHAPENET_PATH+'/'+dic_categories[category]+'/'+available_models[model_id]+'/'+'models'+'/'+'model_normalized.obj',
     device=device,
     load_textures=True,
@@ -442,7 +402,6 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     )
     
     atlas = aux.texture_atlas
-    #print(atlas.size(), faces.verts_idx.size(), verts.size(),aux.materials_color, aux.)
     mesh = Meshes(
         verts=[verts],
         faces=[faces.verts_idx],
@@ -470,10 +429,7 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     azim = torch.linspace(120,150, num_views)
     
     lights = PointLights(device=device, location=[[0.0, 0.0, -100.0]])
-    
-    #R, T = look_at_view_transform(dist=4.2, elev=elev, azim=azim)
     R, T = look_at_view_transform(dist=1.7, elev=elev, azim=azim)
-    #cameras = OpenGLPerspectiveCameras(device=device, R=R, T=T)
     R,T = R.to(device),T.to(device)
     cameras = [OpenGLPerspectiveCameras(device=device, R=R[None, i, ...], 
                                              T=T[None, i, ...],fov=60) for i in range(num_views)]
@@ -517,7 +473,6 @@ def init_target_shapenet(category="airplane", shapenet_path = "../ShapeNetCore.v
     
     target_images = renderer(target_meshes, cameras=cameras[0], lights=lights)
     target_sil = silhouette_renderer(target_meshes,cameras=cameras[0], lights = lights)
-    #print(target_images.size())
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
     target_alpha = [target_sil[i, ..., 3:] for i in range(num_views)]
     return target_meshes, cameras, lights, target_rgb, target_alpha
@@ -577,14 +532,10 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
           print("grad",log_rot.grad)
           print("log_rot",log_rot)
           log_rot.grad = 1e-5*torch.normal(torch.zeros_like(log_rot.grad))
-          #optimizer.zero_grad()
-          #continue
-          #log_rot.grad = log_rot.grad / gradient_values[-1]*.01
       optimizer.step()
       if adapt_reg and i>100:
           sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
           grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
-          #print("sigma grad", grad_sigma,"grad gamma",grad_gamma)
           v_sigma, v_gamma, v_alpha =.9*v_sigma.detach().clone() + .1*grad_sigma.detach().clone(), .9*v_gamma.detach().clone() + .1*grad_gamma.detach().clone(), .9*v_alpha.detach().clone() + .1*grad_alpha.detach().clone()
           sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
           blend_settings = BlendParams(sigma = sigma.detach().clone()/adapt_params[0],gamma = gamma.detach().clone()/adapt_params[1])
@@ -595,13 +546,6 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
                 diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
                 lr = max(lr/1.5, 1e-4)
                 optimizer = torch.optim.Adam([log_rot], lr=lr)
-    #fig = plt.figure(figsize=(13, 5))
-    #ax = fig.gca()
-    #ax.semilogy(losses["rgb"]['values'], label="rgb" + " loss")
-    #ax.legend(fontsize="16")
-    #ax.set_xlabel("Iteration", fontsize="16")
-    #ax.set_ylabel("Loss", fontsize="16")
-    #ax.set_title("Loss vs iterations", fontsize="16")
     path_fig = Path().cwd().parent
     path_fig = path_fig/('experiments/results/'+str(exp_id))
     datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
@@ -612,12 +556,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
         os.mkdir(path_fig/"optimization_details"/datenow)
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
     np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
-    #plt.savefig(path_fig/"optimization_details"/datenow/'loss_values.png', bbox_inches='tight')
-    #plt.close(fig)
-    #plt.figure()
-    #plt.semilogy([i for i in range(len(gradient_values))],gradient_values)
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
-    #plt.close()
     return best_log_rot
 
 def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_init,diff_renderer,target_rgb,target_alpha,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
@@ -653,16 +592,6 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
         loss_rgb = torch.abs(predicted_rgb - target_rgb[0]).mean()
         loss_laplacian =  mesh_laplacian_smoothing(predicted_mesh, method="uniform")
         silhouette_predicted = images_predicted[..., 3:]
-        # plt.figure()
-        # plt.imshow(predicted_rgb[0].detach().cpu().numpy())
-        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/"airplane"
-        # plt.savefig(path_fig/("rgb_iter"+str(i)+".png"), bbox_inches='tight')
-        # plt.close()
-        # plt.figure()
-        # plt.imshow(silhouette_predicted[0].detach().cpu().numpy())
-        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/"airplane"
-        # plt.savefig(path_fig/("silhouette_iter"+str(i)+".png"), bbox_inches='tight')
-        # plt.close()
         loss_silhouette = torch.abs(silhouette_predicted*target_alpha[0]).sum()
         loss_silhouette /= torch.abs(silhouette_predicted+target_alpha[0]-silhouette_predicted*target_alpha[0]).sum()
         loss_silhouette = 1- loss_silhouette
@@ -710,32 +639,14 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
     return best_deform, best_rgb
 
-def compare_pose_opt(args): 
-# def compare_pose_opt(params_file):
-#     file = open(Path().cwd()/"experiments"/params_file, "r")
-#     params_dic = ast.literal_eval(file.read())
-#     file.close()
-#     lr_list = [1e-2,1e-3]
-#     smoothing_list = [(1e-2,1e-3)]
-#     exp_id = params_dic["exp_id"]
-#     shapenet_location = params_dic["shapenet_location"]
-#     N_benchmark = params_dic["N_benchmark"]
-#     categories = params_dic["categories"]
-#     pert_init_intensity = params_dic["pert_init_intensity"]
-#     Niter = params_dic["Niter"]
-#     optimizer = params_dic["optimizer"]
-#     lr_list = params_dic["lr_list"]
-#     smoothing_list = params_dic["smoothing_list"]
-#     noise_type = params_dic["noise_type"]
-#     adapt_reg  = params_dic["adapt_reg"]
-#     adapt_params  = params_dic["adapt_params"] if adapt_reg else [(1.,1.)]
-#     MC_samples = params_dic["MC_samples"] if not adapt_reg else [8]
+def compare_pose_opt(args):
     lr_list = args.lr_values
     smoothing_list = args.smoothing_values
     exp_id = args.experiment_id
     shapenet_location = args.dataset_directory
     N_benchmark = args.num_prob
     categories = args.categories
+    print(categories)
     pert_init_intensity = args.initial_perturbation
     Niter= args.num_iterations
     optimizer = args.optimizer
@@ -892,19 +803,9 @@ def compare_deform_opt(params_file):
                         path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
                         plt.savefig(path_fig/("target_rgb.png"), bbox_inches='tight')
                         plt.close()
-                        # plt.figure()
-                        # plt.imshow(target_alpha[0].detach().cpu().numpy())
-                        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
-                        # plt.savefig(path_fig/("target_silhouette.png"), bbox_inches='tight')
-                        # plt.close()
+                        
                         base_mesh, deform_init, verts_rgb_init, renderers = init_render_mesh(cameras,lights,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
-                        # init_mesh = base_mesh.offset_verts(deform_init)
-                        # init_mesh.textures = TexturesVertex(verts_features=verts_rgb_init) 
-                        # plt.figure()
-                        # plt.imshow(renderers[0](init_mesh, cameras=cameras[0], lights=lights)[0,...,:3].detach().cpu().numpy())
-                        # path_fig = Path().cwd()/"experiments"/"results"/str(exp_id)/categories[i]
-                        # plt.savefig(path_fig/("init_rgb.png"), bbox_inches='tight')
-                        # plt.close()
+                        
                         for l in range(len(noise_type)):
                             print(noise_type[l])
                             deform, verts_rgb = optimize_mesh_deformation(base_mesh,cameras,lights,deform_init, verts_rgb_init, renderers[l], target_rgb, target_alpha, exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
@@ -938,82 +839,6 @@ def compare_deform_opt(params_file):
     file_params = open(path_res/'exp_setup.txt', 'w')
     json.dump(exp_setup, file_params)
 
-# def visualize_prediction(predicted_mesh, renderer,R,T,
-#                          target_image, title='', 
-#                          silhouette=False):
-#     inds = 3 if silhouette else range(3)
-#     predicted_images = renderer(predicted_mesh, R=R[0:1], T=T[0:1])
-#     plt.figure(figsize=(20, 10))
-#     plt.subplot(1, 2, 1)
-#     plt.imshow(predicted_images[0, ..., inds].cpu().detach().numpy())
-
-#     plt.subplot(1, 2, 2)
-#     plt.imshow(target_image.cpu().detach().numpy())
-#     plt.title(title)
-#     plt.grid("off")
-#     plt.axis("off")
-#     plt.close()
-    
-# def hat(v):
-#     N, dim = v.shape
-#     if dim != 3:
-#         raise ValueError("Input vectors have to be 3-dimensional.")
-
-#     h = v.new_zeros(N, 3, 3)
-
-#     x, y, z = v.unbind(1)
-
-#     h[:, 0, 1] = -z
-#     h[:, 0, 2] = y
-#     h[:, 1, 0] = z
-#     h[:, 1, 2] = -x
-#     h[:, 2, 0] = -y
-#     h[:, 2, 1] = x
-
-#     return h    
-    
-
-# def so3_exponential_map_corrected(log_rot):
-#     _, dim = log_rot.shape
-#     if dim != 3:
-#         raise ValueError("Input tensor shape has to be Nx3.")
-    
-#     nrms = (log_rot * log_rot).sum(1)
-#     batch_size = nrms.size()[0]
-#     R = torch.zeros(batch_size,3,3)
-#     for j in range(batch_size):
-#         if nrms[j]!=0.:
-#             rot_angles = nrms[j].sqrt()
-#             rot_angles_inv = 1.0 / rot_angles
-#             fac1 = rot_angles_inv * rot_angles.sin().unsqueeze(0)
-#             fac2 = (rot_angles_inv * rot_angles_inv * (1.0 - rot_angles.cos())).unsqueeze(0)
-#             skews = hat(log_rot[j].unsqueeze(0))
-#             R[j] = (
-#                 fac1[:, None, None] * skews
-#                 + fac2[:, None, None] * torch.bmm(skews, skews)
-#                 + torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
-#             ).squeeze(0)
-
-#         else:
-#             R[j] = exp_map0.apply(log_rot[j])
-#     return R
-
-# class exp_map0(Function):
-#     @staticmethod
-#     def forward(ctx,log_rot):
-#         R = torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
-#         ctx.save_for_backward(log_rot)
-#         return R
-    
-#     @staticmethod
-#     def backward(ctx,grad_l):
-#         log_rot = ctx.saved_tensors[0]
-#         grad_log_rot = torch.zeros(log_rot.size())
-#         for i in range(log_rot.size()[0]):
-#             e_i = torch.zeros(1,3,1)
-#             e_i[0,i,0] = 1.
-#             grad_log_rot[i] = (hat(e_i.squeeze(-1))*grad_l).sum()
-#         return grad_log_rot
   
 def image_grid(
     images,
