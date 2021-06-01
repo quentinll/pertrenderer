@@ -5,6 +5,7 @@ Created on Mon Jan 11 17:16:05 2021
 
 @author: quentin
 """
+import argparse
 
 import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -23,8 +24,6 @@ import ast
 from pathlib import Path
 import torch
 from tqdm import tqdm
-from torch.autograd import Function
-from pytorch3d.utils import ico_sphere
 
 from pytorch3d.loss import (
     chamfer_distance, 
@@ -36,16 +35,12 @@ from pytorch3d.loss import (
 from pytorch3d.renderer import (
     look_at_view_transform,
     OpenGLPerspectiveCameras, 
-    PointLights, 
-    DirectionalLights, 
-    Materials, 
+    PointLights,
     RasterizationSettings, 
     MeshRenderer, 
-    MeshRasterizer,  
-    SoftPhongShader,
+    MeshRasterizer,
     HardPhongShader,
     SoftSilhouetteShader,
-    SoftPhongShader,
     Textures,
     TexturesVertex,
     TexturesAtlas,
@@ -56,23 +51,50 @@ from pytorch3d.transforms import (
     random_rotations,
     so3_exponential_map,
     so3_log_map,
-    so3_rotation_angle,
     so3_relative_angle
 )
 
-from pytorch3d.datasets import (
-    R2N2,
-    ShapeNetCore,
-    collate_batched_meshes,
-    render_cubified_voxels,
-)
+
 
 from pytorch3d.structures import Meshes
-from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader, SoftSimpleShader
-from pytorch3d.io import load_objs_as_meshes, save_obj, load_obj, load_ply, IO
+from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, SimpleShader
+from pytorch3d.io import load_objs_as_meshes, load_obj
 
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg, GaussianAgg_wovr
 from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast, GaussianRast_wovr
+
+
+DATASET_DIRECTORY = "../ShapeNetCore.v2"
+NUM_ITERATIONS = 100
+OPTIMIZER = "adam"
+LR_VALUES = [5e-3]
+SMOOTHING_VALUES = [(1e-4,1e-3)]
+SMOOTHING_NOISE = ["gaussian"]
+MC_SAMPLES = [2]
+ADAPTIVE_REGULARIZATION = 1
+ADAPTIVE_PARAMS = [(1.1,1.5)]
+INITIAL_PERTURBATION = 20.
+CATEGORIES = ["cube"]
+TASK = "pose_opt"
+EXP_ID = 10
+NUM_PROB = 100
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-eid', '--experiment-id', type=int, default=EXP_ID)
+parser.add_argument('-dd', '--dataset-directory', type=str, default=DATASET_DIRECTORY)
+parser.add_argument('-ni', '--num-iterations', type=int, default=NUM_ITERATIONS)
+parser.add_argument('-opt', '--optimizer', type=str, default=OPTIMIZER)
+parser.add_argument('-lr', '--lr-values', type=list, default=LR_VALUES)
+parser.add_argument('-sv', '--smoothing-values', type=list, default=SMOOTHING_VALUES)
+parser.add_argument('-sn', '--smoothing-noise', type=list, default=SMOOTHING_NOISE)
+parser.add_argument('-mc', '--mc-samples', type=list, default=MC_SAMPLES)
+parser.add_argument('-ar', '--adaptive-regularization', type=bool, default=ADAPTIVE_REGULARIZATION)
+parser.add_argument('-ap', '--adaptive-params', type=list, default=ADAPTIVE_PARAMS)
+parser.add_argument('-ip', '--initial-perturbation', type=float, default=INITIAL_PERTURBATION)
+parser.add_argument('-cat', '--categories', type=list, default=CATEGORIES)
+parser.add_argument('-tsk', '--task', type=str, default=TASK)
+parser.add_argument('-np', '--num-prob', type=int, default=NUM_PROB)
+args = parser.parse_args()
 
 if torch.cuda.is_available() and 1:
     device = torch.device("cuda:0")
@@ -83,6 +105,8 @@ else:
 torch.set_printoptions(8)
     
 print("device used",device)
+path_curr = Path().cwd()
+os.makedirs(path_curr/'results', exist_ok=True)
 
 def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
     if pert_init_intensity == 0.:
@@ -199,7 +223,7 @@ def init_render_mesh(camera, lights, sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_
 
 def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
     if category=="cube":
-        datadir = "./data/rubiks"
+        datadir = "../data/rubiks"
         obj_filename = os.path.join(datadir, "cube2.obj")
         fn = 'cube_p.npz'
         with np.load(f'{datadir}/{fn}') as f:
@@ -578,7 +602,7 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     #ax.set_xlabel("Iteration", fontsize="16")
     #ax.set_ylabel("Loss", fontsize="16")
     #ax.set_title("Loss vs iterations", fontsize="16")
-    path_fig = Path().cwd()
+    path_fig = Path().cwd().parent
     path_fig = path_fig/('experiments/results/'+str(exp_id))
     datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
     if not os.path.exists(path_fig):
@@ -686,26 +710,39 @@ def optimize_mesh_deformation(base_mesh,cameras,lights,deform_init,verts_rgb_ini
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
     return best_deform, best_rgb
 
-
-def compare_pose_opt(params_file):
-    file = open(Path().cwd()/"experiments"/params_file, "r")
-    params_dic = ast.literal_eval(file.read())
-    file.close()
-    lr_list = [1e-2,1e-3]
-    smoothing_list = [(1e-2,1e-3)]
-    exp_id = params_dic["exp_id"]
-    shapenet_location = params_dic["shapenet_location"]
-    N_benchmark = params_dic["N_benchmark"]
-    categories = params_dic["categories"]
-    pert_init_intensity = params_dic["pert_init_intensity"]
-    Niter = params_dic["Niter"]
-    optimizer = params_dic["optimizer"]
-    lr_list = params_dic["lr_list"]
-    smoothing_list = params_dic["smoothing_list"]
-    noise_type = params_dic["noise_type"]
-    adapt_reg  = params_dic["adapt_reg"]
-    adapt_params  = params_dic["adapt_params"] if adapt_reg else [(1.,1.)]
-    MC_samples = params_dic["MC_samples"] if not adapt_reg else [8]
+def compare_pose_opt(args): 
+# def compare_pose_opt(params_file):
+#     file = open(Path().cwd()/"experiments"/params_file, "r")
+#     params_dic = ast.literal_eval(file.read())
+#     file.close()
+#     lr_list = [1e-2,1e-3]
+#     smoothing_list = [(1e-2,1e-3)]
+#     exp_id = params_dic["exp_id"]
+#     shapenet_location = params_dic["shapenet_location"]
+#     N_benchmark = params_dic["N_benchmark"]
+#     categories = params_dic["categories"]
+#     pert_init_intensity = params_dic["pert_init_intensity"]
+#     Niter = params_dic["Niter"]
+#     optimizer = params_dic["optimizer"]
+#     lr_list = params_dic["lr_list"]
+#     smoothing_list = params_dic["smoothing_list"]
+#     noise_type = params_dic["noise_type"]
+#     adapt_reg  = params_dic["adapt_reg"]
+#     adapt_params  = params_dic["adapt_params"] if adapt_reg else [(1.,1.)]
+#     MC_samples = params_dic["MC_samples"] if not adapt_reg else [8]
+    lr_list = args.lr_values
+    smoothing_list = args.smoothing_values
+    exp_id = args.experiment_id
+    shapenet_location = args.dataset_directory
+    N_benchmark = args.num_prob
+    categories = args.categories
+    pert_init_intensity = args.initial_perturbation
+    Niter= args.num_iterations
+    optimizer = args.optimizer
+    noise_type = args.smoothing_noise
+    adapt_reg = args.adaptive_regularization
+    adapt_params = args.adaptive_params if adapt_reg else [(1.,1.)]
+    MC_samples = args.mc_samples if not adapt_reg else [8]
     params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
     mean_errors = {}
     init_errors = {}
@@ -763,7 +800,7 @@ def compare_pose_opt(params_file):
                     params["MC"] += [nb_MC]
                     params["adapt_params"] += [adapt_param]
                     
-    path_res = Path().cwd()
+    path_res = Path().cwd().parent
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'angle_error.txt', 'w')
     json.dump(mean_errors, file_res)
@@ -780,8 +817,8 @@ def compare_pose_opt(params_file):
     file_params = open(path_res/'exp_setup.txt', 'w')
     json.dump(exp_setup, file_params)
 
-def IoU_meshes(mesh1,mesh2):
-    return 0
+# def IoU_meshes(mesh1,mesh2):
+#     return 0
 
 def compare_deform_opt(params_file):
     file = open(Path().cwd()/"experiments"/params_file, "r")
@@ -901,82 +938,82 @@ def compare_deform_opt(params_file):
     file_params = open(path_res/'exp_setup.txt', 'w')
     json.dump(exp_setup, file_params)
 
-def visualize_prediction(predicted_mesh, renderer,R,T,
-                         target_image, title='', 
-                         silhouette=False):
-    inds = 3 if silhouette else range(3)
-    predicted_images = renderer(predicted_mesh, R=R[0:1], T=T[0:1])
-    plt.figure(figsize=(20, 10))
-    plt.subplot(1, 2, 1)
-    plt.imshow(predicted_images[0, ..., inds].cpu().detach().numpy())
+# def visualize_prediction(predicted_mesh, renderer,R,T,
+#                          target_image, title='', 
+#                          silhouette=False):
+#     inds = 3 if silhouette else range(3)
+#     predicted_images = renderer(predicted_mesh, R=R[0:1], T=T[0:1])
+#     plt.figure(figsize=(20, 10))
+#     plt.subplot(1, 2, 1)
+#     plt.imshow(predicted_images[0, ..., inds].cpu().detach().numpy())
 
-    plt.subplot(1, 2, 2)
-    plt.imshow(target_image.cpu().detach().numpy())
-    plt.title(title)
-    plt.grid("off")
-    plt.axis("off")
-    plt.close()
+#     plt.subplot(1, 2, 2)
+#     plt.imshow(target_image.cpu().detach().numpy())
+#     plt.title(title)
+#     plt.grid("off")
+#     plt.axis("off")
+#     plt.close()
     
-def hat(v):
-    N, dim = v.shape
-    if dim != 3:
-        raise ValueError("Input vectors have to be 3-dimensional.")
+# def hat(v):
+#     N, dim = v.shape
+#     if dim != 3:
+#         raise ValueError("Input vectors have to be 3-dimensional.")
 
-    h = v.new_zeros(N, 3, 3)
+#     h = v.new_zeros(N, 3, 3)
 
-    x, y, z = v.unbind(1)
+#     x, y, z = v.unbind(1)
 
-    h[:, 0, 1] = -z
-    h[:, 0, 2] = y
-    h[:, 1, 0] = z
-    h[:, 1, 2] = -x
-    h[:, 2, 0] = -y
-    h[:, 2, 1] = x
+#     h[:, 0, 1] = -z
+#     h[:, 0, 2] = y
+#     h[:, 1, 0] = z
+#     h[:, 1, 2] = -x
+#     h[:, 2, 0] = -y
+#     h[:, 2, 1] = x
 
-    return h    
+#     return h    
     
 
-def so3_exponential_map_corrected(log_rot):
-    _, dim = log_rot.shape
-    if dim != 3:
-        raise ValueError("Input tensor shape has to be Nx3.")
+# def so3_exponential_map_corrected(log_rot):
+#     _, dim = log_rot.shape
+#     if dim != 3:
+#         raise ValueError("Input tensor shape has to be Nx3.")
     
-    nrms = (log_rot * log_rot).sum(1)
-    batch_size = nrms.size()[0]
-    R = torch.zeros(batch_size,3,3)
-    for j in range(batch_size):
-        if nrms[j]!=0.:
-            rot_angles = nrms[j].sqrt()
-            rot_angles_inv = 1.0 / rot_angles
-            fac1 = rot_angles_inv * rot_angles.sin().unsqueeze(0)
-            fac2 = (rot_angles_inv * rot_angles_inv * (1.0 - rot_angles.cos())).unsqueeze(0)
-            skews = hat(log_rot[j].unsqueeze(0))
-            R[j] = (
-                fac1[:, None, None] * skews
-                + fac2[:, None, None] * torch.bmm(skews, skews)
-                + torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
-            ).squeeze(0)
+#     nrms = (log_rot * log_rot).sum(1)
+#     batch_size = nrms.size()[0]
+#     R = torch.zeros(batch_size,3,3)
+#     for j in range(batch_size):
+#         if nrms[j]!=0.:
+#             rot_angles = nrms[j].sqrt()
+#             rot_angles_inv = 1.0 / rot_angles
+#             fac1 = rot_angles_inv * rot_angles.sin().unsqueeze(0)
+#             fac2 = (rot_angles_inv * rot_angles_inv * (1.0 - rot_angles.cos())).unsqueeze(0)
+#             skews = hat(log_rot[j].unsqueeze(0))
+#             R[j] = (
+#                 fac1[:, None, None] * skews
+#                 + fac2[:, None, None] * torch.bmm(skews, skews)
+#                 + torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
+#             ).squeeze(0)
 
-        else:
-            R[j] = exp_map0.apply(log_rot[j])
-    return R
+#         else:
+#             R[j] = exp_map0.apply(log_rot[j])
+#     return R
 
-class exp_map0(Function):
-    @staticmethod
-    def forward(ctx,log_rot):
-        R = torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
-        ctx.save_for_backward(log_rot)
-        return R
+# class exp_map0(Function):
+#     @staticmethod
+#     def forward(ctx,log_rot):
+#         R = torch.eye(3, dtype=log_rot.dtype, device=log_rot.device)[None]
+#         ctx.save_for_backward(log_rot)
+#         return R
     
-    @staticmethod
-    def backward(ctx,grad_l):
-        log_rot = ctx.saved_tensors[0]
-        grad_log_rot = torch.zeros(log_rot.size())
-        for i in range(log_rot.size()[0]):
-            e_i = torch.zeros(1,3,1)
-            e_i[0,i,0] = 1.
-            grad_log_rot[i] = (hat(e_i.squeeze(-1))*grad_l).sum()
-        return grad_log_rot
+#     @staticmethod
+#     def backward(ctx,grad_l):
+#         log_rot = ctx.saved_tensors[0]
+#         grad_log_rot = torch.zeros(log_rot.size())
+#         for i in range(log_rot.size()[0]):
+#             e_i = torch.zeros(1,3,1)
+#             e_i[0,i,0] = 1.
+#             grad_log_rot[i] = (hat(e_i.squeeze(-1))*grad_l).sum()
+#         return grad_log_rot
   
 def image_grid(
     images,
@@ -1013,3 +1050,6 @@ def image_grid(
     path_fig = path_fig/'results/'/title
     plt.savefig(path_fig/'grid_cube.png', bbox_inches='tight')
     plt.close(fig)
+
+
+compare_pose_opt(args)
