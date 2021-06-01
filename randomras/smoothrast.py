@@ -3,7 +3,7 @@
 """
 Created on Thu Feb 25 09:56:29 2021
 
-@author: quentin
+@author: 
 """
 import torch
 from torch.nn import Module

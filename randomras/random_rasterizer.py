@@ -3,7 +3,7 @@
 """
 Created on Mon Jan 11 17:11:24 2021
 
-@author: quentin
+@author: 
 """
 
 import torch
@@ -36,7 +36,6 @@ from .smoothagg import SoftAgg
 
 def smooth_rgb_blend(
     colors, fragments, smoothrast, smoothagg, blend_params, znear: float = 1.0, zfar: float = 100) -> torch.Tensor:
-    #torch.autograd.set_detect_anomaly(True)
     N, H, W, K = fragments.pix_to_face.shape
     device = fragments.pix_to_face.device
     pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=colors.device)
@@ -48,21 +47,9 @@ def smooth_rgb_blend(
 
     # Mask for padded pixels.
     mask = fragments.pix_to_face >= 0
-
-    #rasterization
-    #fragments.dists.register_hook(lambda x: print("dists grad",torch.max(x)))
     prob_map = smoothrast.rasterize(fragments.dists)*mask
-    #prob_map.register_hook(lambda x: print("probmap grad",torch.max(x)))
     alpha_chan = torch.prod((1.0 - prob_map), dim=-1)
-    
-    #aggregation
-    #fragments.zbuf.register_hook(lambda x: print("z_buf grad",torch.max(x)))
-    # smoothagg.alpha.register_hook(lambda x: print("alpha grad",torch.max(x)))
-    # smoothagg.gamma.register_hook(lambda x: print("gamma grad",torch.max(x)))
-    # smoothrast.sigma.register_hook(lambda x: print("sigma grad",torch.max(x)))
-    #print("zfar", zfar.size(), "znear", znear.size())
     randomax = smoothagg.aggregate(fragments.zbuf,zfar,znear,prob_map,mask)
-    #randomax.register_hook(lambda x: print("aggmap grad",torch.max(x)))
     wz,wb = randomax[...,:-1],randomax[...,-1:]
     weighted_colors = (wz[..., None] * colors).sum(dim=-2)
     weighted_background = wb * background
@@ -183,12 +170,9 @@ class RandomSimpleShader(nn.Module):
             msg = "Cameras must be specified either at initialization \
                 or in the forward pass of SoftPhongShader"
             raise ValueError(msg)
-        #meshes.verts_padded().register_hook(lambda x: print("mesh grad", torch.max(x)))
         texels = meshes.sample_textures(fragments)
         blend_params = kwargs.get("blend_params", self.blend_params)
-        #znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))
         znear = kwargs.get("znear", getattr(cameras, "znear", 1.0))[:,None,None,None]
-        #zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))
         zfar = kwargs.get("zfar", getattr(cameras, "zfar", 100.0))[:,None,None,None]
         images = smooth_rgb_blend(
             texels, fragments, self.smoothrast, self.smoothagg, blend_params, znear=znear, zfar=zfar
