@@ -6,6 +6,7 @@ Implementation of a differentiable renderer using random perturbations. This ren
 The python package can be installed by running:
 
 ```
+pip install -r requirements.txt
 pip install -e .
 ```
 
