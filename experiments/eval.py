@@ -67,14 +67,14 @@ from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast,
 
 
 DATASET_DIRECTORY = str(Path().cwd().parents[1]/"SubsetShapenet/ShapeNetCore.v2")
-NUM_ITERATIONS = 100
+NUM_ITERATIONS = 800
 OPTIMIZER = "adam"
-LR_VALUES = [5e-3]
-SMOOTHING_VALUES = [(1e-4,1e-3)]
-SMOOTHING_NOISE = ["gaussian"]
-MC_SAMPLES = [2]
+LR_VALUES = [3e-2]
+SMOOTHING_VALUES = [(1e-3,1e-2)]
+SMOOTHING_NOISE = ["softras","gaussian"]
+MC_SAMPLES = [8]
 ADAPTIVE_REGULARIZATION = 1
-ADAPTIVE_PARAMS = [(1.1,1.5)]
+ADAPTIVE_PARAMS = [(1.1,1.1)]
 INITIAL_PERTURBATION = 20.
 CATEGORIES = ["cube"]
 TASK = "pose_opt"
