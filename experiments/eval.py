@@ -75,13 +75,14 @@ OPTIMIZER = "adam"
 LR_VALUES = [3e-2]
 SMOOTHING_VALUES = [(1e-3,1e-2)]
 SMOOTHING_NOISE = ["softras","gaussian"]
-MC_SAMPLES = [1]
+MC_SAMPLES = [8]
 ADAPTIVE_REGULARIZATION = 1
 ADAPTIVE_PARAMS = [(1.1,1.1)]
 INITIAL_PERTURBATION = 20.
 CATEGORIES = ["cube"]
 TASK = "pose_opt"
 EXP_ID = 10
+IMAGE_SIZE =128
 NUM_PROB = 100
 RANDOM_SEED=1
 EXP_TYPE = "pose_opt"
@@ -102,13 +103,14 @@ parser.add_argument('-opt', '--optimizer', type=str, default=OPTIMIZER)
 parser.add_argument('-lr', '--lr-values', nargs='+', type=float, default=LR_VALUES)
 parser.add_argument('-sv', '--smoothing-values', nargs='+', type=parse_tuples, default=SMOOTHING_VALUES)
 parser.add_argument('-sn', '--smoothing-noise', nargs='+', type=str, default=SMOOTHING_NOISE)
-parser.add_argument('-mc', '--mc-samples', nargs='+', type=list, default=MC_SAMPLES)
+parser.add_argument('-mc', '--mc-samples', nargs='+', type=int, default=MC_SAMPLES)
 parser.add_argument('-ar', '--adaptive-regularization', type=bool, default=ADAPTIVE_REGULARIZATION)
 parser.add_argument('-ap', '--adaptive-params', nargs='+', type=parse_tuples, default=ADAPTIVE_PARAMS)
 parser.add_argument('-ip', '--initial-perturbation', type=float, default=INITIAL_PERTURBATION)
 parser.add_argument('-cat', '--categories', nargs='+', type=str, default=CATEGORIES)
 parser.add_argument('-tsk', '--task', type=str, default=TASK)
 parser.add_argument('-np', '--num-prob', type=int, default=NUM_PROB)
+parser.add_argument('-is', '--image-size', type=int, default=IMAGE_SIZE)
 parser.add_argument('-s', '--seed', type=int, default=RANDOM_SEED)
 args = parser.parse_args()
 
@@ -126,7 +128,7 @@ print("device used",device)
 path_curr = Path().cwd()
 os.makedirs(path_curr/'results', exist_ok=True)
 
-def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"]):
+def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e-2, gamma = 5e-1, alpha = 1., nb_samples = 16, noise_type=["cauchy"], imsize = 128):
     if pert_init_intensity == 0.:
         print("random init ")
         R_init= random_rotations(1).to(device=device)
@@ -138,7 +140,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
     blend_settings=BlendParams(sigma = sigma, gamma = gamma, background_color = (.0,.0,.0)) #smoothing parameters
       
     raster_settings_soft = RasterizationSettings(
-        image_size=128, 
+        image_size=imsize, 
         blur_radius= np.log(1. / 1e-4 - 1.)*blend_settings.sigma, 
         faces_per_pixel=50,
         max_faces_per_bin=50000,
@@ -184,7 +186,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
     return log_rot_init, renderers
 
 
-def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
+def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1", imsize=128):
     if category=="cube":
         datadir = "../data/objs/rubiks"
         obj_filename = os.path.join(datadir, "cube2.obj")
@@ -295,7 +297,7 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1"):
                                       T=T[None, 0, ...]) 
     
     raster_settings = RasterizationSettings(
-        image_size=128, 
+        image_size=imsize, 
         blur_radius=0.,
         faces_per_pixel=1,
         max_faces_per_bin=100000
@@ -416,6 +418,7 @@ def compare_runtime(args):
     exp_id = args.experiment_id
     shapenet_location = args.dataset_directory
     N_benchmark = args.num_prob
+    imsize = args.image_size
     categories = args.categories
     pert_init_intensity = args.initial_perturbation
     Niter= args.num_iterations
@@ -429,9 +432,9 @@ def compare_runtime(args):
     for x in noise_type:
         mean_runtimes[x]= []
     test_problems = []
-    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location)
+    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
     for i in range(N_benchmark):
-        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location)
+        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
         log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
         test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
@@ -446,7 +449,7 @@ def compare_runtime(args):
                     for i in range(N_benchmark):
                         print(i+1,'/', N_benchmark, 'test problem')
                         (target_rgb,R_true,log_rot_init) = test_problems[i]
-                        _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type, imsize= imsize)
                         for l in range(len(noise_type)):
                             print(noise_type[l])
                             t_start = time.time()
@@ -472,6 +475,7 @@ def compare_pose_opt(args):
     exp_id = args.experiment_id
     shapenet_location = args.dataset_directory
     N_benchmark = args.num_prob
+    imsize = args.image_size
     categories = args.categories
     pert_init_intensity = args.initial_perturbation
     Niter= args.num_iterations
@@ -494,10 +498,10 @@ def compare_pose_opt(args):
         final_errors[x] = []
         mean_solved[x] = {1:[],2:[], 5:[], 10:[], 15:[], 20:[], 25: [], 35: [], 45:[] }
     test_problems = []
-    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location)    
+    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)    
     for i in range(N_benchmark):
-        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location)
-        log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
+        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
+        log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type, imsize = imsize)    
         test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
         for k,smoothing in enumerate(smoothing_list):
@@ -513,7 +517,7 @@ def compare_pose_opt(args):
                     for i in range(N_benchmark):
                         print(i+1,'/', N_benchmark, 'test problem')
                         (target_rgb,R_true,log_rot_init) = test_problems[i]
-                        _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type, imsize = imsize)
                         for l in range(len(noise_type)):
                             print(noise_type[l])
                             angle_errors_init[noise_type[l]]+=[so3_relative_angle(so3_exponential_map(log_rot_init), R_true).detach().cpu().item()*180./np.pi]
