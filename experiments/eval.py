@@ -455,7 +455,9 @@ def compare_runtime(args):
                             t_start = time.time()
                             log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             timing = time.time() - t_start
-                            mean_runtimes[noise_type[l]]+=[timing]
+                            runtimes[noise_type[l]] += [timing]
+                    for l in range(len(noise_type)): 
+                        mean_runtimes[noise_type[l]]+=[runtimes[noise_type[l]]]
                     params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
                     params["lr"] += [lr]
                     params["sigma"] += [sigma]
