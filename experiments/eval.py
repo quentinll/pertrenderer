@@ -21,11 +21,14 @@ import matplotlib.pyplot as plt
 
 import json
 
+import time
+
 import os
 import ast 
 from pathlib import Path
 import torch
 from tqdm import tqdm
+
 
 from pytorch3d.loss import (
     chamfer_distance, 
@@ -72,7 +75,7 @@ OPTIMIZER = "adam"
 LR_VALUES = [3e-2]
 SMOOTHING_VALUES = [(1e-3,1e-2)]
 SMOOTHING_NOISE = ["softras","gaussian"]
-MC_SAMPLES = [8]
+MC_SAMPLES = [1]
 ADAPTIVE_REGULARIZATION = 1
 ADAPTIVE_PARAMS = [(1.1,1.1)]
 INITIAL_PERTURBATION = 20.
@@ -81,7 +84,7 @@ TASK = "pose_opt"
 EXP_ID = 10
 NUM_PROB = 100
 RANDOM_SEED=1
-
+EXP_TYPE = "pose_opt"
 
 def parse_tuples(s):
     try:
@@ -91,6 +94,7 @@ def parse_tuples(s):
         raise argparse.ArgumentTypeError("Tuple must be x,y")
 
 parser = argparse.ArgumentParser()
+parser.add_argument('-et', '--experiment-type', type=str, default=EXP_TYPE)
 parser.add_argument('-eid', '--experiment-id', type=int, default=EXP_ID)
 parser.add_argument('-dd', '--dataset-directory', type=str, default=DATASET_DIRECTORY) #path to shapenet 
 parser.add_argument('-ni', '--num-iterations', type=int, default=NUM_ITERATIONS)
@@ -406,6 +410,61 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
     return best_log_rot
 
+def compare_runtime(args):
+    lr_list = args.lr_values
+    smoothing_list = args.smoothing_values
+    exp_id = args.experiment_id
+    shapenet_location = args.dataset_directory
+    N_benchmark = args.num_prob
+    categories = args.categories
+    pert_init_intensity = args.initial_perturbation
+    Niter= args.num_iterations
+    optimizer = args.optimizer
+    noise_type = args.smoothing_noise
+    adapt_reg = args.adaptive_regularization
+    adapt_params = args.adaptive_params if adapt_reg else [(1.,1.)]
+    MC_samples = args.mc_samples
+    params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
+    mean_runtimes = {}
+    for x in noise_type:
+        mean_runtimes[x]= []
+    test_problems = []
+    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location)
+    for i in range(N_benchmark):
+        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location)
+        log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
+        test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
+    for j,lr in enumerate(lr_list):
+        for k,smoothing in enumerate(smoothing_list):
+            for kk, nb_MC in enumerate(MC_samples):
+                for jj, adapt_param in enumerate(adapt_params):
+                    print(j*len(smoothing_list)*len(MC_samples)*len(adapt_params) + k*len(MC_samples)*len(adapt_params) +kk*len(adapt_params)+jj +1,'/',len(lr_list)*len(smoothing_list)*len(MC_samples)*len(adapt_params),'params')
+                    (sigma,gamma) = smoothing
+                    runtimes = {}
+                    for x in noise_type:
+                        runtimes[x]= []
+                    for i in range(N_benchmark):
+                        print(i+1,'/', N_benchmark, 'test problem')
+                        (target_rgb,R_true,log_rot_init) = test_problems[i]
+                        _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type)
+                        for l in range(len(noise_type)):
+                            print(noise_type[l])
+                            t_start = time.time()
+                            log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
+                            timing = time.time() - t_start
+                            mean_runtimes[noise_type[l]]+=[timing]
+                    params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
+                    params["lr"] += [lr]
+                    params["sigma"] += [sigma]
+                    params["gamma"] += [gamma]
+                    params["MC"] += [nb_MC]
+                    params["adapt_params"] += [adapt_param]
+                    
+    path_res = Path().cwd().parent
+    path_res = path_res/('experiments/results/'+str(exp_id))
+    file_res = open(path_res/'runtimes.txt', 'w')
+    json.dump(mean_runtimes, file_res)
+    return
 
 def compare_pose_opt(args):
     lr_list = args.lr_values
@@ -559,5 +618,7 @@ def image_grid(
     plt.savefig(path_fig/'grid_cube.png', bbox_inches='tight')
     plt.close(fig)
 
-
-compare_pose_opt(args)
+if args.experiment_type=="pose_opt":
+    compare_pose_opt(args)
+elif args.experiment_type=="runtime":
+    compare_runtime(args)
