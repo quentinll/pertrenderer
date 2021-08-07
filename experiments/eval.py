@@ -66,7 +66,7 @@ from randomras.random_rasterizer import RandomPhongShader, RandomSimpleShader, S
 from pytorch3d.io import load_objs_as_meshes, load_obj
 
 from randomras.smoothagg import SoftAgg, CauchyAgg, GaussianAgg, HardAgg, GaussianAgg_wovr
-from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast, GaussianRast_wovr
+from randomras.smoothrast import SoftRast, ArctanRast, GaussianRast, AffineRast, GaussianRast_wovr, HardRast
 
 
 DATASET_DIRECTORY = str(Path().cwd().parents[1]/"SubsetShapenet/ShapeNetCore.v2")
@@ -162,6 +162,9 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
         if noise_type[i] == "uniform":
             random_rast = AffineRast(sigma=sigma)
             random_agg = HardAgg()
+        if noise_type[i] == "hard":
+            random_rast = HardRast()
+            random_agg = HardAgg()
         if noise_type[i] =="softras":
             random_rast = SoftRast(sigma = sigma)
             random_agg = SoftAgg(gamma= gamma, alpha = alpha )
@@ -188,35 +191,7 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
 
 def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1", imsize=128):
     if category=="cube":
-        datadir = "../data/objs/rubiks"
-        obj_filename = os.path.join(datadir, "cube2.obj")
-        fn = 'cube_p.npz'
-        with np.load(f'{datadir}/{fn}') as f:
-            pos_idx, pos, col_idx, col = f.values()
-          
-        print("Mesh has %d triangles and %d vertices." % (pos_idx.shape[0], pos.shape[0]))
-        if pos.shape[1] == 4: pos = pos[:, 0:3]
-        pos_idx = torch.from_numpy(pos_idx.astype(np.int32)).to(device = device).unsqueeze(0)
-        vtx_pos = torch.from_numpy(pos.astype(np.float32)).to(device = device).unsqueeze(0)
-        col_idx = torch.from_numpy(col_idx.astype(np.int32)).to(device = device).unsqueeze(0)
-        vtx_col = torch.from_numpy(col.astype(np.float32)).to(device = device)
-        
-        #reorder color to have same cube as softras
-        green_col  = vtx_col[3,:].clone()
-        vtx_col[3,:] =vtx_col[0,:]
-        vtx_col[0,:] = green_col
-          
-        model_verts, model_faces, aux= load_obj(obj_filename)
-        l = aux.texture_images['cube'].size()[1]//6
-        for i in range(6):
-          aux.texture_images['cube'][:,i*l:(i+1)*l,:] = vtx_col[i,:].unsqueeze(0).unsqueeze(0).repeat(aux.texture_images['cube'].size()[0],l,1)
-        verts_uvs = aux.verts_uvs[None, ...]  # (1, V, 2)
-        faces_uvs = model_faces.textures_idx[None, ...]  # (1, F, 3)
-        tex_maps = aux.texture_images
-        texture_image = list(tex_maps.values())[0]
-        texture_image = texture_image[None, ...]  # (1, H, W, 3)
-        model_textures = Textures(verts_uvs=verts_uvs, faces_uvs=faces_uvs, maps=texture_image)
-        mesh = Meshes(verts=[model_verts], faces=[model_faces.verts_idx], textures=model_textures).to(device=device)
+        mesh = load_cube()
     else:
         dic_categories = {
         "table":"04379243",
@@ -330,6 +305,24 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1", imsize=12
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
     return meshes, cameras, lights, target_rgb, R_true
 
+def init_base_mesh_cameras_lights(category="sphere"):
+    if category == "sphere":
+        verts, faces, _ = load_obj(str(Path().cwd().parents[0]/"data/objs/sphere/sphere_642.obj"))
+        src_mesh = Meshes(verts=[verts], faces=[faces.verts_idx]).to(device=device)
+    else:
+        src_mesh = load_cube()
+    verts = src_mesh.verts_packed()
+    N = verts.shape[0]
+    if category=="sphere":    
+        center = verts.mean(0)
+        scale = max((verts - center).abs().max(0)[0])*2.
+        src_mesh.offset_verts_(-center.expand(N, 3))
+        src_mesh.scale_verts_((1.0 / float(scale)));
+    deform_init = torch.full(src_mesh.verts_packed().shape, 0.0, device=device)
+    verts_rgb_init = torch.full([1, N, 3], 1., device=device)
+    camera_elev, camera_azim = torch.zeros(1), torch.zeros(1)
+    lights_location = torch.tensor([[0.0,2.0, -2.0]])
+    return src_mesh, deform_init, verts_rgb_init, camera_elev, camera_azim, lights_location
 
 def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
     
@@ -352,53 +345,60 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     v_sigma,v_gamma,v_alpha = torch.zeros(1),torch.zeros(1),torch.zeros(1)
     best_log_rot = log_rot.clone()
     best_loss = np.inf
+    runtimes = {"forward": [], "backward": []}
     for i in loop:
-      R = so3_exponential_map(log_rot)
-      rotation = Rotate(R, device=device)
-      # rotate the mesh
-      predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
+        R = so3_exponential_map(log_rot)
+        rotation = Rotate(R, device=device)
+        # rotate the mesh
+        predicted_mesh = mesh.update_padded(rotation.transform_points(mesh.verts_padded()))
+        
+        loss = {k: torch.tensor(0.0, device=device) for k in losses}
+        t1 = time.time()
+        images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
+        # Squared L2 distance between the predicted RGB image and the target 
+        # image from our dataset
+        predicted_rgb = images_predicted[..., :3]
+        loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
+        t2 = time.time()
+        loss["rgb"] += loss_rgb 
+        for k, l in loss.items():
+            losses[k]["values"].append(l.detach().cpu().item())
+        
+        # Print the losses
+        loop.set_description("total_loss = %.6f" % loss_rgb)
       
-      loss = {k: torch.tensor(0.0, device=device) for k in losses}
-      images_predicted = diff_renderer(predicted_mesh, cameras=cameras[0], lights=lights)
-      # Squared L2 distance between the predicted RGB image and the target 
-      # image from our dataset
-      predicted_rgb = images_predicted[..., :3]
-      loss_rgb = ((predicted_rgb - target_rgb[0]) ** 2).mean()
-      loss["rgb"] += loss_rgb 
-      for k, l in loss.items():
-          losses[k]["values"].append(l.detach().cpu().item())
-      
-      # Print the losses
-      loop.set_description("total_loss = %.6f" % loss_rgb)
-    
-      # Plot mesh
-      if i % plot_period == 0:
-          images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
-      optimizer.zero_grad()
-      # Optimization step
-      loss_rgb.backward()
-      if loss_rgb.detach().cpu().numpy() < best_loss:
-          best_loss = loss_rgb.detach().cpu().numpy()
-          best_log_rot = log_rot.clone()
-      gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
-      if gradient_values[-1]> 1000.: 
-          print("grad",log_rot.grad)
-          print("log_rot",log_rot)
-          log_rot.grad = 1e-5*torch.normal(torch.zeros_like(log_rot.grad))
-      optimizer.step()
-      if adapt_reg and i>100:
-          sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
-          grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
-          v_sigma, v_gamma, v_alpha =.9*v_sigma.detach().clone() + .1*grad_sigma.detach().clone(), .9*v_gamma.detach().clone() + .1*grad_gamma.detach().clone(), .9*v_alpha.detach().clone() + .1*grad_alpha.detach().clone()
-          sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
-          blend_settings = BlendParams(sigma = sigma.detach().clone()/adapt_params[0],gamma = gamma.detach().clone()/adapt_params[1])
-          nb_samples = diff_renderer.shader.get_nb_samples()
-          if v_gamma >0 and (i+1)%50==0 :
-                diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*max(blend_settings.sigma,5e-5)
-                diff_renderer.shader.update_smoothing(sigma=max(blend_settings.sigma,5e-5),gamma= max(blend_settings.gamma,5e-4))
-                diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
-                lr = max(lr/1.5, 1e-4)
-                optimizer = torch.optim.Adam([log_rot], lr=lr)
+        # Plot mesh
+        if i % plot_period == 0:
+            images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
+        optimizer.zero_grad()
+        # Optimization step
+        t3 = time.time()
+        loss_rgb.backward()
+        t4 = time.time()
+        if loss_rgb.detach().cpu().numpy() < best_loss:
+            best_loss = loss_rgb.detach().cpu().numpy()
+            best_log_rot = log_rot.clone()
+        gradient_values += [torch.norm(log_rot.grad).detach().cpu().item()]
+        if gradient_values[-1]> 1000.: 
+            print("grad",log_rot.grad)
+            print("log_rot",log_rot)
+            log_rot.grad = 1e-5*torch.normal(torch.zeros_like(log_rot.grad))
+        optimizer.step()
+        runtimes["forward"]+=[t2-t1]
+        runtimes["backward"]+=[t4-t3]
+        if adapt_reg and i>100:
+            sigma,gamma,alpha = diff_renderer.shader.get_smoothing()
+            grad_sigma, grad_gamma, grad_alpha = sigma.grad, gamma.grad, alpha.grad
+            v_sigma, v_gamma, v_alpha =.9*v_sigma.detach().clone() + .1*grad_sigma.detach().clone(), .9*v_gamma.detach().clone() + .1*grad_gamma.detach().clone(), .9*v_alpha.detach().clone() + .1*grad_alpha.detach().clone()
+            sigma.grad, gamma.grad, alpha.grad = torch.zeros_like(sigma.grad), torch.zeros_like(gamma.grad), torch.zeros_like(alpha.grad)
+            blend_settings = BlendParams(sigma = sigma.detach().clone()/adapt_params[0],gamma = gamma.detach().clone()/adapt_params[1])
+            nb_samples = diff_renderer.shader.get_nb_samples()
+            if v_gamma >0 and (i+1)%50==0 :
+                  diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*max(blend_settings.sigma,5e-5)
+                  diff_renderer.shader.update_smoothing(sigma=max(blend_settings.sigma,5e-5),gamma= max(blend_settings.gamma,5e-4))
+                  diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
+                  lr = max(lr/1.5, 1e-4)
+                  optimizer = torch.optim.Adam([log_rot], lr=lr)
     path_fig = Path().cwd().parent
     path_fig = path_fig/('experiments/results/'+str(exp_id))
     datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
@@ -410,7 +410,106 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
     np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
+    print("forward", np.mean(np.array(runtimes["forward"])))
+    print("backward", np.mean(np.array(runtimes["backward"])))
     return best_log_rot
+
+def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_location_init, deform_init, verts_rgb_init, diff_renderer, target_rgb,target_alpha,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
+    verts_shape = base_mesh.verts_packed().shape
+    sphere_verts_rgb = verts_rgb_init.detach().clone().requires_grad_(False)
+    deform = deform_init.detach().clone().requires_grad_(False)
+    camera_elev = camera_elev_init.detach().clone().requires_grad_(True)
+    camera_azim = camera_azim_init.detach().clone().requires_grad_(True)
+    lights_location = lights_location_init.detach().clone().requires_grad_(False)
+    losses = {"rgb": {"weight": 1.0, "values": []},
+              "silhouette":{"values":[]},
+              "laplacian":{"values":[]},
+              "total":{"values":[]},
+            }
+    gradient_values = []
+    # Plot period for the losses
+    plot_period = max(Niter/50,1)
+    gradient_values = []
+    loop = tqdm(range(Niter))
+    images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
+    lr = lr_init
+    if optimizer == "sgd":
+        optimizer = torch.optim.SGD([camera_elev,camera_azim], lr=lr, momentum=0.9)
+    else:
+        optimizer = torch.optim.Adam([camera_elev,camera_azim], lr=lr)
+    best_deform = deform.clone()
+    best_rgb = sphere_verts_rgb.clone()
+    best_loss = np.inf
+    for i in loop:
+        lights = PointLights(device=device, location=[[0.0,2.0, -2.0]])
+        R, T = look_at_view_transform(dist=6.7, elev=camera_elev, azim=camera_azim)
+        #R,T = R.to(device),T.to(device)
+        camera = OpenGLPerspectiveCameras(device=device, R=R[None, 0, ...], 
+                                      T=T[None, 0, ...]) 
+        predicted_mesh = base_mesh.detach().clone().offset_verts(deform)
+        #predicted_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb.clamp(min=0.,max=1.)) 
+        loss = {k: torch.tensor(0.0, device=device) for k in losses}
+        images_predicted = diff_renderer(predicted_mesh, cameras=camera, lights=lights)
+        predicted_rgb = images_predicted[..., :3]
+        loss_rgb = torch.abs(predicted_rgb - target_rgb[0]).mean()
+        loss_laplacian =  mesh_laplacian_smoothing(predicted_mesh, method="uniform")
+        silhouette_predicted = images_predicted[..., 3:]
+        #loss_silhouette = torch.abs(silhouette_predicted*target_alpha[0]).sum()
+        #loss_silhouette /= torch.abs(silhouette_predicted+target_alpha[0]-silhouette_predicted*target_alpha[0]).sum()
+        #loss_silhouette = 1- loss_silhouette
+        total_loss = 1.*loss_rgb +1.0e-4*loss_laplacian #+1.0e0*loss_silhouette#+1.*loss_edge + 1e-2*loss_normal  
+        loss["rgb"] += loss_rgb 
+        #loss["silhouette"] += loss_silhouette
+        loss["laplacian"] += loss_laplacian
+        loss["total"] += total_loss
+        for k, l in loss.items():
+            losses[k]["values"].append(l.detach().cpu().item())
+
+        # Print the losses
+        loop.set_description("total_loss = %.6f" % total_loss)
+
+        optimizer.zero_grad()
+        # Optimization step
+        total_loss.backward()
+        
+        if i % plot_period == 0:
+            hard_rendered_im = get_hard_rendering(predicted_mesh, camera, lights)
+            #print(hard_rendered_im[0,10:20,10:20,:3])
+            images_from_training = torch.cat((images_from_training,hard_rendered_im[:,:,:,:3].detach().cpu()), dim = 0)
+        
+        if total_loss.detach().cpu().numpy() < best_loss:
+            best_loss = total_loss.detach().cpu().numpy()
+            best_deform = deform.clone()
+            best_rgb = sphere_verts_rgb.clone()
+            best_light = lights_location.clone()
+            best_azim = camera_azim.clone()
+            best_elev = camera_elev.clone()
+        #gradient_values += [torch.norm(deform.grad).detach().cpu().item()]
+        #if gradient_values[-1]> 1000.: #clipping gradients
+        #    deform.grad = 1e-5*torch.normal(torch.zeros_like(deform.grad))
+        optimizer.step()
+        if adapt_reg and i>200 and i%50==0:
+            sigma,gamma,_ = diff_renderer.shader.get_smoothing()
+            blend_settings = BlendParams(sigma = sigma/adapt_params[0],gamma = gamma/adapt_params[1])
+            nb_samples = diff_renderer.shader.get_nb_samples()
+            diff_renderer.rasterizer.raster_settings.blur_radius = np.log(1. / 1e-4 - 1.)*blend_settings.sigma
+            diff_renderer.shader.update_smoothing(sigma=blend_settings.sigma,gamma= blend_settings.gamma)
+            diff_renderer.shader.update_nb_samples(nb_samples = min(2*nb_samples, 128) )
+            lr = lr/1.5
+            optimizer = torch.optim.Adam([deform,sphere_verts_rgb], lr=lr)
+    path_fig = Path().cwd()
+    path_fig = path_fig/('results/'+str(exp_id))
+    datenow = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
+    if not os.path.exists(path_fig):
+        os.mkdir(path_fig)
+        os.mkdir(path_fig/"optimization_details")
+    if not os.path.exists(path_fig/"optimization_details"/datenow):
+        os.mkdir(path_fig/"optimization_details"/datenow)
+    np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
+    np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
+    image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
+    return best_deform, best_rgb, best_light, best_azim, best_elev
+
 
 def compare_runtime(args):
     lr_list = args.lr_values
@@ -587,7 +686,91 @@ def compare_pose_opt(args):
         plt.legend()
         plt.savefig(path_res/"results_plot.png")
 
-  
+
+def check_differentiability(args):
+    lr_list = args.lr_values
+    smoothing_list = [(5e-5,5e-4)]
+    exp_id = args.experiment_id
+    shapenet_location = args.dataset_directory
+    N_benchmark = args.num_prob
+    imsize = args.image_size
+    categories = args.categories
+    pert_init_intensity = args.initial_perturbation
+    Niter= args.num_iterations
+    optimizer = args.optimizer
+    noise_type = args.smoothing_noise
+    adapt_reg = args.adaptive_regularization
+    adapt_params = args.adaptive_params if adapt_reg else [(1.,1.)]
+    MC_samples = args.mc_samples if not adapt_reg else [8]
+    src_mesh, deform_init, verts_rgb_init, camera_elev, camera_azim, lights_location = init_base_mesh_cameras_lights(categories[0])
+    _, _, _, target_rgb, _ = init_target(imsize=imsize)
+    sigma, gamma = smoothing_list[0]
+    nb_MC = MC_samples[0]
+    R_true = random_rotations(1).to(device=device)
+    _, renderers = init_renderers(None,None,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type, imsize = imsize)
+    optimize_scene_params(src_mesh, camera_elev, camera_azim, lights_location, deform_init, verts_rgb_init, renderers[1], target_rgb, 0, exp_id, lr_list[0], Niter = Niter)
+    return
+
+def load_cube():
+    datadir = "../data/objs/rubiks"
+    obj_filename = os.path.join(datadir, "cube2.obj")
+    fn = 'cube_p.npz'
+    with np.load(f'{datadir}/{fn}') as f:
+        pos_idx, pos, col_idx, col = f.values()
+      
+    print("Mesh has %d triangles and %d vertices." % (pos_idx.shape[0], pos.shape[0]))
+    if pos.shape[1] == 4: pos = pos[:, 0:3]
+    pos_idx = torch.from_numpy(pos_idx.astype(np.int32)).to(device = device).unsqueeze(0)
+    vtx_pos = torch.from_numpy(pos.astype(np.float32)).to(device = device).unsqueeze(0)
+    col_idx = torch.from_numpy(col_idx.astype(np.int32)).to(device = device).unsqueeze(0)
+    vtx_col = torch.from_numpy(col.astype(np.float32)).to(device = device)
+    
+    #reorder color to have same cube as softras
+    green_col  = vtx_col[3,:].clone()
+    vtx_col[3,:] =vtx_col[0,:]
+    vtx_col[0,:] = green_col
+      
+    model_verts, model_faces, aux= load_obj(obj_filename)
+    l = aux.texture_images['cube'].size()[1]//6
+    for i in range(6):
+      aux.texture_images['cube'][:,i*l:(i+1)*l,:] = vtx_col[i,:].unsqueeze(0).unsqueeze(0).repeat(aux.texture_images['cube'].size()[0],l,1)
+    verts_uvs = aux.verts_uvs[None, ...]  # (1, V, 2)
+    faces_uvs = model_faces.textures_idx[None, ...]  # (1, F, 3)
+    tex_maps = aux.texture_images
+    texture_image = list(tex_maps.values())[0]
+    texture_image = texture_image[None, ...]  # (1, H, W, 3)
+    model_textures = Textures(verts_uvs=verts_uvs, faces_uvs=faces_uvs, maps=texture_image)
+    mesh = Meshes(verts=[model_verts], faces=[model_faces.verts_idx], textures=model_textures).to(device=device)
+    return mesh 
+
+
+def get_hard_rendering(mesh, camera, lights):
+    
+    raster_settings = RasterizationSettings(
+        image_size=32, 
+        blur_radius=0.,
+        faces_per_pixel=1,
+        max_faces_per_bin=100000
+    )
+    
+    blend_settings = BlendParams(background_color = (0.,0.,0.))
+    
+    renderer = MeshRenderer(
+        rasterizer=MeshRasterizer(
+            cameras=camera, 
+            raster_settings=raster_settings
+        ),
+        shader=HardPhongShader(
+            device=device,
+            blend_params= blend_settings
+        )
+    )
+    meshes = mesh.extend(1)
+    
+    rendered_image = renderer(meshes, cameras=camera, lights=lights)
+    
+    return rendered_image
+ 
 def image_grid(
     images,
     title,
@@ -628,3 +811,5 @@ if args.experiment_type=="pose_opt":
     compare_pose_opt(args)
 elif args.experiment_type=="runtime":
     compare_runtime(args)
+elif args.experiment_type=="check_diff":
+    check_differentiability(args)
