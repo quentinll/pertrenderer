@@ -410,8 +410,9 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     np.save(path_fig/"optimization_details"/datenow/'loss_values.npy', losses["rgb"]['values'])
     np.save(path_fig/"optimization_details"/datenow/'gradient_values.npy', gradient_values)
     image_grid(images_from_training.numpy(), rows=4, cols=1+images_from_training.size()[0]//4, rgb=True,title = path_fig/"optimization_details"/datenow)
-    print("forward", np.mean(np.array(runtimes["forward"])))
-    print("backward", np.mean(np.array(runtimes["backward"])))
+    print("forward", np.mean(np.array(runtimes["forward"])),np.std(np.array(runtimes["forward"])))
+    print("backward", np.mean(np.array(runtimes["backward"])),  np.std(np.array(runtimes["backward"])))
+    print("total", sum(runtimes["forward"]) + sum(runtimes["backward"]))
     return best_log_rot
 
 def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_location_init, deform_init, verts_rgb_init, diff_renderer, target_rgb,target_alpha,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
