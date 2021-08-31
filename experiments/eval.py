@@ -16,7 +16,7 @@ import json
 from datetime import datetime
 
 import matplotlib
-#matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import json
