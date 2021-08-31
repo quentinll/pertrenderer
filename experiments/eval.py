@@ -16,7 +16,7 @@ import json
 from datetime import datetime
 
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import json
@@ -303,10 +303,10 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1", imsize=12
     target_images = renderer(meshes_rotated, cameras=cameras[0], lights=lights)
     
     target_rgb = [target_images[i, ..., :3] for i in range(num_views)]
-    return meshes, cameras, lights, target_rgb, R_true
+    return meshes, cameras, lights, target_rgb, R_true, elev, azim
 
-def init_base_mesh_cameras_lights(category="sphere"):
-    if category == "sphere":
+def init_base_mesh_cameras_lights(category="sphere", params_to_check = None):
+    if category == "sphere" or params_to_check["vertices"]:
         verts, faces, _ = load_obj(str(Path().cwd().parents[0]/"data/objs/sphere/sphere_642.obj"))
         src_mesh = Meshes(verts=[verts], faces=[faces.verts_idx]).to(device=device)
     else:
@@ -318,10 +318,17 @@ def init_base_mesh_cameras_lights(category="sphere"):
         scale = max((verts - center).abs().max(0)[0])*2.
         src_mesh.offset_verts_(-center.expand(N, 3))
         src_mesh.scale_verts_((1.0 / float(scale)));
-    deform_init = torch.full(src_mesh.verts_packed().shape, 0.0, device=device)
-    verts_rgb_init = torch.full([1, N, 3], 1., device=device)
-    camera_elev, camera_azim = torch.zeros(1), torch.zeros(1)
-    lights_location = torch.tensor([[0.0,2.0, -2.0]])
+    deform_init = torch.zeros(src_mesh.verts_packed().size(), device=device)
+    verts_rgb_init = torch.ones((1, N, 3), device=device)
+    if params_to_check["camera"]:
+        camera_elev, camera_azim = torch.ones(1)*20, torch.ones(1)*100
+    else:
+        camera_elev, camera_azim = torch.ones(1)*30, torch.ones(1)*120
+    if params_to_check["light"]:
+        lights_location = torch.tensor([[.0, 6.0, -1.0]])
+    else:
+        lights_location = torch.tensor([[0.0,2.0, -2.0]])
+    
     return src_mesh, deform_init, verts_rgb_init, camera_elev, camera_azim, lights_location
 
 def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
@@ -415,13 +422,18 @@ def optimize_pose(mesh,cameras,lights,init_pose,diff_renderer,target_rgb,exp_id,
     print("total", sum(runtimes["forward"]) + sum(runtimes["backward"]))
     return best_log_rot
 
-def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_location_init, deform_init, verts_rgb_init, diff_renderer, target_rgb,target_alpha,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5)):
+def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_location_init, deform_init, verts_rgb_init, diff_renderer, target_rgb,target_alpha,exp_id,lr_init=5e-2,Niter=100,optimizer = "adam", adapt_reg= False, adapt_params = (1.1,1.5), param_to_check = None):
     verts_shape = base_mesh.verts_packed().shape
-    sphere_verts_rgb = verts_rgb_init.detach().clone().requires_grad_(False)
-    deform = deform_init.detach().clone().requires_grad_(False)
-    camera_elev = camera_elev_init.detach().clone().requires_grad_(True)
-    camera_azim = camera_azim_init.detach().clone().requires_grad_(True)
-    lights_location = lights_location_init.detach().clone().requires_grad_(False)
+    sphere_verts_rgb = verts_rgb_init.detach().clone().requires_grad_(param_to_check["textures"])
+    deform = deform_init.detach().clone().requires_grad_(param_to_check["vertices"])
+    camera_elev = camera_elev_init.detach().clone().requires_grad_(param_to_check["camera"])
+    camera_azim = camera_azim_init.detach().clone().requires_grad_(param_to_check["camera"])
+    lights_location = lights_location_init.detach().clone().requires_grad_(param_to_check["light"])
+    parameters = [sphere_verts_rgb, deform, camera_elev, camera_azim, lights_location]
+    param_to_optim = []
+    for x in parameters:
+        if x.requires_grad:
+            param_to_optim += [x]
     losses = {"rgb": {"weight": 1.0, "values": []},
               "silhouette":{"values":[]},
               "laplacian":{"values":[]},
@@ -435,20 +447,21 @@ def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_
     images_from_training = target_rgb[0].detach().cpu().unsqueeze(0)
     lr = lr_init
     if optimizer == "sgd":
-        optimizer = torch.optim.SGD([camera_elev,camera_azim], lr=lr, momentum=0.9)
+        optimizer = torch.optim.SGD(param_to_optim, lr=lr, momentum=0.9)
     else:
-        optimizer = torch.optim.Adam([camera_elev,camera_azim], lr=lr)
+        optimizer = torch.optim.Adam(param_to_optim, lr=lr)
     best_deform = deform.clone()
     best_rgb = sphere_verts_rgb.clone()
     best_loss = np.inf
     for i in loop:
-        lights = PointLights(device=device, location=[[0.0,2.0, -2.0]])
+        lights = PointLights(device=device, location=lights_location)
         R, T = look_at_view_transform(dist=6.7, elev=camera_elev, azim=camera_azim)
         #R,T = R.to(device),T.to(device)
         camera = OpenGLPerspectiveCameras(device=device, R=R[None, 0, ...], 
                                       T=T[None, 0, ...]) 
         predicted_mesh = base_mesh.detach().clone().offset_verts(deform)
-        #predicted_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb.clamp(min=0.,max=1.)) 
+        if param_to_check["textures"]:
+            predicted_mesh.textures = TexturesVertex(verts_features=sphere_verts_rgb.clamp(min=0.,max=1.)) 
         loss = {k: torch.tensor(0.0, device=device) for k in losses}
         images_predicted = diff_renderer(predicted_mesh, cameras=camera, lights=lights)
         predicted_rgb = images_predicted[..., :3]
@@ -458,7 +471,7 @@ def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_
         #loss_silhouette = torch.abs(silhouette_predicted*target_alpha[0]).sum()
         #loss_silhouette /= torch.abs(silhouette_predicted+target_alpha[0]-silhouette_predicted*target_alpha[0]).sum()
         #loss_silhouette = 1- loss_silhouette
-        total_loss = 1.*loss_rgb +1.0e-4*loss_laplacian #+1.0e0*loss_silhouette#+1.*loss_edge + 1e-2*loss_normal  
+        total_loss = 1.*loss_rgb +5.0e-3*loss_laplacian #+1.0e0*loss_silhouette#+1.*loss_edge + 1e-2*loss_normal  
         loss["rgb"] += loss_rgb 
         #loss["silhouette"] += loss_silhouette
         loss["laplacian"] += loss_laplacian
@@ -474,9 +487,10 @@ def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_
         total_loss.backward()
         
         if i % plot_period == 0:
-            hard_rendered_im = get_hard_rendering(predicted_mesh, camera, lights)
+            hard_rendered_im = get_hard_rendering(predicted_mesh, camera, lights, predicted_rgb.size(1))
             #print(hard_rendered_im[0,10:20,10:20,:3])
             images_from_training = torch.cat((images_from_training,hard_rendered_im[:,:,:,:3].detach().cpu()), dim = 0)
+            #images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
         
         if total_loss.detach().cpu().numpy() < best_loss:
             best_loss = total_loss.detach().cpu().numpy()
@@ -529,12 +543,14 @@ def compare_runtime(args):
     MC_samples = args.mc_samples
     params = {"lr-smoothing-MC":[], "lr": [],"sigma": [],"gamma": [],"MC": [] , "adapt_params":[]}
     mean_runtimes = {}
+    mean_memory = {}
     for x in noise_type:
         mean_runtimes[x]= []
+        mean_memory[x]= []
     test_problems = []
-    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
+    meshes,cameras,lights,_,_,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
     for i in range(N_benchmark):
-        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
+        _,_,_,target_rgb,R_true,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
         log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type)    
         test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
@@ -544,20 +560,27 @@ def compare_runtime(args):
                     print(j*len(smoothing_list)*len(MC_samples)*len(adapt_params) + k*len(MC_samples)*len(adapt_params) +kk*len(adapt_params)+jj +1,'/',len(lr_list)*len(smoothing_list)*len(MC_samples)*len(adapt_params),'params')
                     (sigma,gamma) = smoothing
                     runtimes = {}
+                    memory_cons = {}
                     for x in noise_type:
                         runtimes[x]= []
+                        memory_cons[x]= []
                     for i in range(N_benchmark):
                         print(i+1,'/', N_benchmark, 'test problem')
                         (target_rgb,R_true,log_rot_init) = test_problems[i]
                         _, renderers = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type, imsize= imsize)
                         for l in range(len(noise_type)):
                             print(noise_type[l])
+                            torch.cuda.reset_peak_memory_stats(device)
                             t_start = time.time()
                             log_rot = optimize_pose(meshes,cameras,lights,log_rot_init, renderers[l], target_rgb,exp_id, Niter = Niter, optimizer = optimizer, adapt_reg = adapt_reg, adapt_params = adapt_param)
                             timing = time.time() - t_start
+                            mem_res = torch.cuda.max_memory_allocated(device)
                             runtimes[noise_type[l]] += [timing]
+                            memory_cons[noise_type[l]] += [mem_res*1e-6]
+                            print("peak memory: " + str(mem_res*1e-6) + " Mb" )
                     for l in range(len(noise_type)): 
                         mean_runtimes[noise_type[l]]+=[runtimes[noise_type[l]]]
+                        mean_memory[noise_type[l]]+=[memory_cons[noise_type[l]]]
                     params["lr-smoothing-MC"] += [(lr,sigma,gamma,nb_MC)]
                     params["lr"] += [lr]
                     params["sigma"] += [sigma]
@@ -569,6 +592,8 @@ def compare_runtime(args):
     path_res = path_res/('experiments/results/'+str(exp_id))
     file_res = open(path_res/'runtimes.txt', 'w')
     json.dump(mean_runtimes, file_res)
+    file_res = open(path_res/'memory.txt', 'w')
+    json.dump(mean_memory, file_res)
     return
 
 def compare_pose_opt(args):
@@ -600,9 +625,9 @@ def compare_pose_opt(args):
         final_errors[x] = []
         mean_solved[x] = {1:[],2:[], 5:[], 10:[], 15:[], 20:[], 25: [], 35: [], 45:[] }
     test_problems = []
-    meshes,cameras,lights,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)    
+    meshes,cameras,lights,_,_,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)    
     for i in range(N_benchmark):
-        _,_,_,target_rgb,R_true = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
+        _,_,_,target_rgb,R_true,_,_ = init_target(category=categories[0],shapenet_path=shapenet_location, imsize=imsize)
         log_rot_init, _ = init_renderers(cameras,lights,R_true,pert_init_intensity=pert_init_intensity,sigma= .1,gamma=.1,nb_samples=1,noise_type= noise_type, imsize = imsize)    
         test_problems += [([x.detach().clone() for x in target_rgb],R_true.detach().clone(),log_rot_init.detach().clone())]
     for j,lr in enumerate(lr_list):
@@ -689,8 +714,9 @@ def compare_pose_opt(args):
 
 
 def check_differentiability(args):
+    param_to_check = {"camera": False, "vertices": False, "textures": False, "light": True}
     lr_list = args.lr_values
-    smoothing_list = [(5e-5,5e-4)]
+    smoothing_list = [(1e-4,1e-3)]
     exp_id = args.experiment_id
     shapenet_location = args.dataset_directory
     N_benchmark = args.num_prob
@@ -703,13 +729,22 @@ def check_differentiability(args):
     adapt_reg = args.adaptive_regularization
     adapt_params = args.adaptive_params if adapt_reg else [(1.,1.)]
     MC_samples = args.mc_samples if not adapt_reg else [8]
-    src_mesh, deform_init, verts_rgb_init, camera_elev, camera_azim, lights_location = init_base_mesh_cameras_lights(categories[0])
-    _, _, _, target_rgb, _ = init_target(imsize=imsize)
+    src_mesh, deform_init, verts_rgb_init, camera_elev, camera_azim, lights_location = init_base_mesh_cameras_lights(categories[0], param_to_check)
+    model_verts = src_mesh.verts_packed()
+    N = model_verts.shape[0]
+    center = model_verts.mean(0)
+    scale = max((model_verts - center).abs().max(0)[0])
+    src_mesh.offset_verts_(-center.expand(N, 3))
+    src_mesh.scale_verts_((1.0 / float(scale)));
+    _, _, _, target_rgb, R_true, _,_ = init_target(imsize=imsize)
+    target_rgb = target_rgb[0].unsqueeze(0)
+    rotation_true = Rotate(R_true, device=device)
+    src_mesh = src_mesh.update_padded(rotation_true.transform_points(src_mesh.verts_padded()))
     sigma, gamma = smoothing_list[0]
     nb_MC = MC_samples[0]
     R_true = random_rotations(1).to(device=device)
     _, renderers = init_renderers(None,None,R_true,pert_init_intensity=pert_init_intensity,sigma= sigma,gamma=gamma,nb_samples=nb_MC,noise_type= noise_type, imsize = imsize)
-    optimize_scene_params(src_mesh, camera_elev, camera_azim, lights_location, deform_init, verts_rgb_init, renderers[1], target_rgb, 0, exp_id, lr_list[0], Niter = Niter)
+    optimize_scene_params(src_mesh, camera_elev, camera_azim, lights_location, deform_init, verts_rgb_init, renderers[1], target_rgb, 0, exp_id, lr_list[0], Niter = Niter, param_to_check= param_to_check)
     return
 
 def load_cube():
@@ -745,10 +780,10 @@ def load_cube():
     return mesh 
 
 
-def get_hard_rendering(mesh, camera, lights):
+def get_hard_rendering(mesh, camera, lights, imsize):
     
     raster_settings = RasterizationSettings(
-        image_size=32, 
+        image_size=imsize, 
         blur_radius=0.,
         faces_per_pixel=1,
         max_faces_per_bin=100000
