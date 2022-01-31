@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jan 11 17:11:24 2021
-
-@author: 
-"""
-
 import torch
 import torch.nn as nn
 from pytorch3d.renderer.mesh.shading import phong_shading

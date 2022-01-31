@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Feb 25 09:56:29 2021
-
-@author: 
-"""
 import torch
 from torch.nn import Module
 from torch.autograd import Function

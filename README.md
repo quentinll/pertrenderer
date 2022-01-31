@@ -1,9 +1,9 @@
 # pertrenderer
-Implementation of a differentiable renderer using random perturbations. This renderer is using Pytorch3d.
+Implementation of a differentiable renderer using random perturbations. This code is based on a work published at NeurIPS 2021 : [Differentiable rendering with perturbed optimizers](https://proceedings.neurips.cc/paper/2021/hash/ab233b682ec355648e7891e66c54191b-Abstract.html)
 
 
 ## Installation
-The python package can be installed by running:
+This renderer is mainly based on [Pytorch3d](https://pytorch3d.org/). The python package can be installed by running:
 
 ```
 pip install -r requirements.txt
@@ -63,4 +63,15 @@ pertrenderer = MeshRenderer(
         )
 )
 
+```
+## Citing
+You can cite this work by using:
+```
+@article{lelidec2021differentiable,
+  title={Differentiable rendering with perturbed optimizers},
+  author={Le Lidec, Quentin and Laptev, Ivan and Schmid, Cordelia and Carpentier, Justin},
+  journal={Advances in Neural Information Processing Systems},
+  volume={34},
+  year={2021}
+}
 ```

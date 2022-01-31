@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jan 11 17:16:05 2021
-
-@author: 
-"""
 import argparse
 
 import os
@@ -183,8 +176,6 @@ def init_renderers(camera, lights, R_true, pert_init_intensity = 30., sigma = 1e
                 )
         )
         renderers+=[renderer_random]
-    #log_rot_init = torch.tensor([[ 0.45747742,  0.36187533, -0.92777318]], device=device)
-    #log_rot_init = torch.tensor([[-0.01748946,  2.94965553, -1.79850745]], device=device)
     
     return log_rot_init, renderers
 
@@ -285,8 +276,6 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1", imsize=12
             cameras=camera, 
             raster_settings=raster_settings
         ),
-        
-        #shader=SimpleShader(
         shader=HardPhongShader(
             device=device,
             blend_params= blend_settings
@@ -294,9 +283,6 @@ def init_target(category="cube", shapenet_path = "../ShapeNetCore.v1", imsize=12
     )
     meshes = mesh.extend(num_views)
     R_true = random_rotations(1).to(device=device)
-    #R_true = torch.tensor([[[ 0.27466613,  0.95916265, -0.06756864],
-    #     [-0.90048081,  0.23194659, -0.36787909],
-    #     [-0.33718359,  0.16188823,  0.92741549]]], device= device)
     rotation_true = Rotate(R_true, device=device)
     meshes_rotated = meshes.update_padded(rotation_true.transform_points(meshes.verts_padded()))
     
@@ -468,12 +454,8 @@ def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_
         loss_rgb = torch.abs(predicted_rgb - target_rgb[0]).mean()
         loss_laplacian =  mesh_laplacian_smoothing(predicted_mesh, method="uniform")
         silhouette_predicted = images_predicted[..., 3:]
-        #loss_silhouette = torch.abs(silhouette_predicted*target_alpha[0]).sum()
-        #loss_silhouette /= torch.abs(silhouette_predicted+target_alpha[0]-silhouette_predicted*target_alpha[0]).sum()
-        #loss_silhouette = 1- loss_silhouette
-        total_loss = 1.*loss_rgb +5.0e-3*loss_laplacian #+1.0e0*loss_silhouette#+1.*loss_edge + 1e-2*loss_normal  
+        total_loss = 1.*loss_rgb +5.0e-3*loss_laplacian 
         loss["rgb"] += loss_rgb 
-        #loss["silhouette"] += loss_silhouette
         loss["laplacian"] += loss_laplacian
         loss["total"] += total_loss
         for k, l in loss.items():
@@ -488,9 +470,7 @@ def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_
         
         if i % plot_period == 0:
             hard_rendered_im = get_hard_rendering(predicted_mesh, camera, lights, predicted_rgb.size(1))
-            #print(hard_rendered_im[0,10:20,10:20,:3])
             images_from_training = torch.cat((images_from_training,hard_rendered_im[:,:,:,:3].detach().cpu()), dim = 0)
-            #images_from_training = torch.cat((images_from_training,images_predicted[:,:,:,:3].detach().cpu()), dim = 0)
         
         if total_loss.detach().cpu().numpy() < best_loss:
             best_loss = total_loss.detach().cpu().numpy()
@@ -499,9 +479,6 @@ def optimize_scene_params(base_mesh, camera_elev_init, camera_azim_init, lights_
             best_light = lights_location.clone()
             best_azim = camera_azim.clone()
             best_elev = camera_elev.clone()
-        #gradient_values += [torch.norm(deform.grad).detach().cpu().item()]
-        #if gradient_values[-1]> 1000.: #clipping gradients
-        #    deform.grad = 1e-5*torch.normal(torch.zeros_like(deform.grad))
         optimizer.step()
         if adapt_reg and i>200 and i%50==0:
             sigma,gamma,_ = diff_renderer.shader.get_smoothing()
