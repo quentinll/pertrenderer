@@ -712,7 +712,7 @@ def check_differentiability(args):
     center = model_verts.mean(0)
     scale = max((model_verts - center).abs().max(0)[0])
     src_mesh.offset_verts_(-center.expand(N, 3))
-    src_mesh.scale_verts_((1.0 / float(scale)));
+    src_mesh.scale_verts_((1.0 / float(scale)))
     _, _, _, target_rgb, R_true, _,_ = init_target(imsize=imsize)
     target_rgb = target_rgb[0].unsqueeze(0)
     rotation_true = Rotate(R_true, device=device)

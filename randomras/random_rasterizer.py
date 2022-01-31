@@ -1,3 +1,8 @@
+"""
+Inspired from Pytorch3D.
+"""
+
+
 import torch
 import torch.nn as nn
 from pytorch3d.renderer.mesh.shading import phong_shading

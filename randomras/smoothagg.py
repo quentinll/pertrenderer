@@ -1,3 +1,8 @@
+"""
+Inspired from Pytorch3D.
+"""
+
+
 import torch
 from torch.nn import Module
 from torch.autograd import Function
